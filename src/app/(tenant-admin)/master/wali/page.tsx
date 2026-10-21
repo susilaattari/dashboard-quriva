@@ -2,10 +2,13 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import Sidebar from '@/components/layouts/Sidebar';
-import Navbar from '@/components/layouts/Navbar';
+import AppShell from '@/components/layouts/AppShell';
 import { useAuthStore } from '@/store/useAuthStore';
 import api from '@/services/api';
+import { formatStatus } from '@/lib/format';
+import ErrorState from '@/components/ui/ErrorState';
+import { usePaginatedList } from '@/hooks/usePaginatedList';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import {
   HeartHandshake,
   Plus,
@@ -17,14 +20,37 @@ import {
   AlertCircle,
   GraduationCap,
   ShieldAlert,
+  Eye,
+  EyeOff,
+  X,
 } from 'lucide-react';
+import Pagination from '@/components/ui/Pagination';
 
 export default function MasterWaliPage() {
   const { user } = useAuthStore();
-  const [walis, setWalis] = useState<any[]>([]);
   const [santris, setSantris] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [referenceLoading, setReferenceLoading] = useState(true);
+  const [referenceError, setReferenceError] = useState('');
   const [search, setSearch] = useState('');
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
+  const debouncedSearch = useDebouncedValue(search);
+  const {
+    items: walis,
+    pagination,
+    error: listError,
+    isLoading: listLoading,
+    mutate: mutateWalis,
+  } = usePaginatedList<any>('/users', {
+    role: 'wali_santri',
+    page: currentPage,
+    per_page: pageSize,
+    search: debouncedSearch,
+  });
+  const loading = referenceLoading || listLoading;
+  const error = referenceError || (listError ? 'Gagal memuat data wali santri. Periksa koneksi Anda lalu coba lagi.' : '');
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -32,28 +58,37 @@ export default function MasterWaliPage() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
+  const fetchSantris = async () => {
+    try {
+      setReferenceLoading(true);
+      setReferenceError('');
+      const res = await api.get('/santri');
+      setSantris(res.data?.data || []);
+    } catch (err) {
+      console.error('Failed to load walis reference data:', err);
+      setReferenceError('Gagal memuat data santri asuhan. Periksa koneksi Anda lalu coba lagi.');
+    } finally {
+      setReferenceLoading(false);
+    }
+  };
+
   useEffect(() => {
-    fetchData();
+    fetchSantris();
   }, []);
 
   const fetchData = async () => {
-    try {
-      setLoading(true);
-      const [waliRes, santriRes] = await Promise.all([
-        api.get('/users?role=wali_santri'),
-        api.get('/santri'),
-      ]);
-      setWalis(waliRes.data?.data || []);
-      setSantris(santriRes.data?.data || []);
-    } catch (err) {
-      console.error('Failed to load wali santri:', err);
-    } finally {
-      setLoading(false);
-    }
+    await Promise.all([fetchSantris(), mutateWalis()]);
   };
+
+  useEffect(() => {
+    if (pagination && pagination.total_pages < currentPage) {
+      setCurrentPage(pagination.total_pages);
+    }
+  }, [pagination, currentPage]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,24 +131,14 @@ export default function MasterWaliPage() {
     return santris.filter((s) => s.wali_id === waliId);
   };
 
-  const filtered = walis.filter(
-    (w) =>
-      w.name.toLowerCase().includes(search.toLowerCase()) ||
-      w.email.toLowerCase().includes(search.toLowerCase()) ||
-      (w.phone && w.phone.includes(search))
-  );
-
   if (user?.role === 'guru') {
     return (
-      <div className="flex min-h-screen bg-slate-50">
-        <Sidebar />
-        <div className="flex-1 flex flex-col min-w-0">
-          <Navbar
+      <AppShell
             title="Akses Dibatasi"
             subtitle="Halaman ini hanya dapat diakses oleh Administrator Institusi"
-          />
-          <main className="p-8 flex items-center justify-center flex-1">
-            <div className="max-w-md w-full bg-white rounded-2xl p-8 border border-slate-200 text-center shadow-xs">
+          >
+          <main className="p-4 sm:p-6 lg:p-8 flex items-center justify-center flex-1">
+            <div className="max-w-md w-full bg-white rounded-2xl p-8 border border-slate-200 text-center shadow-sm">
               <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4 border border-amber-200">
                 <ShieldAlert size={32} />
               </div>
@@ -129,21 +154,26 @@ export default function MasterWaliPage() {
               </Link>
             </div>
           </main>
-        </div>
-      </div>
+    </AppShell>
     );
   }
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
-      <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0">
-        <Navbar
+    <AppShell
           title="Master Data Wali Santri"
           subtitle="Kelola akun orang tua/wali santri untuk akses Mobile App Monitoring & Tahsin"
-        />
+        >
 
-        <main className="p-8 space-y-6 flex-1">
+        <main className="p-4 sm:p-6 lg:p-8 space-y-6 flex-1">
+          {error && (
+            <ErrorState
+              title="Gagal memuat data"
+              description={error}
+              onRetry={fetchData}
+              className="rounded-2xl border border-slate-200 bg-white"
+            />
+          )}
+
           {/* Top action bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="relative flex-1 max-w-md">
@@ -152,8 +182,11 @@ export default function MasterWaliPage() {
                 type="text"
                 placeholder="Cari nama wali, email, no WhatsApp..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 shadow-xs"
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 shadow-sm"
               />
             </div>
 
@@ -167,35 +200,36 @@ export default function MasterWaliPage() {
           </div>
 
           {/* Table */}
-          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-semibold border-b border-slate-100">
-                  <tr>
-                    <th className="px-6 py-4">Nama Wali Santri</th>
-                    <th className="px-6 py-4">Kontak (Email / No. HP)</th>
-                    <th className="px-6 py-4">Santri Asuhan</th>
-                    <th className="px-6 py-4">Status</th>
-                    <th className="px-6 py-4 text-right">Aksi</th>
+              <table className="w-full min-w-[900px] text-left text-sm">
+                <thead className="bg-emerald-700 text-white text-xs uppercase font-semibold">
+<tr>
+<th className="px-4 py-3.5 w-14 text-center whitespace-nowrap">No</th>
+<th className="px-4 py-3.5 whitespace-nowrap">Nama Wali Santri</th>
+                    <th className="px-4 py-3.5 whitespace-nowrap">Kontak (Email / No. HP)</th>
+                    <th className="px-4 py-3.5 whitespace-nowrap">Santri Asuhan</th>
+                    <th className="px-4 py-3.5 whitespace-nowrap">Status</th>
+                    <th className="px-4 py-3.5 whitespace-nowrap text-right">Aksi</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 text-slate-700">
-                  {filtered.map((w) => {
+                <tbody className="divide-y divide-slate-200/70 text-slate-700">
+                  {walis.map((w, idx) => {
                     const linked = getLinkedSantri(w.id);
                     return (
-                      <tr key={w.id} className="hover:bg-slate-50/70 transition-colors">
-                        <td className="px-6 py-4">
+                      <tr key={w.id} className="group">
+<td className="px-4 py-3 text-center font-semibold text-slate-600 whitespace-nowrap bg-slate-100 group-hover:bg-emerald-100/70 transition-colors">
+{(currentPage - 1) * pageSize + idx + 1}
+</td>
+                        <td className="px-4 py-3 whitespace-nowrap bg-white group-hover:bg-emerald-50 transition-colors">
                           <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-full bg-amber-100 text-amber-800 font-bold flex items-center justify-center text-sm shrink-0">
-                              {w.name.charAt(0)}
-                            </div>
                             <div>
-                              <div className="font-bold text-slate-900">{w.name}</div>
+                              <div className="font-bold text-slate-700">{w.name}</div>
                               <div className="text-xs text-slate-400">ID Akun: #{w.id}</div>
                             </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-4 py-3 whitespace-nowrap bg-slate-50 group-hover:bg-emerald-50 transition-colors">
                           <div className="text-xs text-slate-700 flex items-center gap-1.5 font-medium">
                             <Mail size={13} className="text-slate-400" /> {w.email}
                           </div>
@@ -205,7 +239,7 @@ export default function MasterWaliPage() {
                             </div>
                           )}
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-4 py-3 whitespace-nowrap bg-white group-hover:bg-emerald-50 transition-colors">
                           {linked.length > 0 ? (
                             <div className="flex flex-wrap gap-1.5">
                               {linked.map((s) => (
@@ -222,16 +256,16 @@ export default function MasterWaliPage() {
                             <span className="text-xs text-slate-400 italic">Belum ditautkan ke santri</span>
                           )}
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-4 py-3 whitespace-nowrap bg-slate-50 group-hover:bg-emerald-50 transition-colors">
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700">
                             <CheckCircle2 size={12} />
-                            {w.status}
+                            {formatStatus(w.status)}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-4 py-3 whitespace-nowrap text-right bg-white group-hover:bg-emerald-50 transition-colors">
                           <button
                             onClick={() => handleDelete(w.id)}
-                            className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                            className="h-10 w-10 inline-flex items-center justify-center shrink-0 rounded-lg bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-100 transition-colors cursor-pointer"
                             title="Hapus Akun Wali"
                           >
                             <Trash2 size={16} />
@@ -240,9 +274,9 @@ export default function MasterWaliPage() {
                       </tr>
                     );
                   })}
-                  {filtered.length === 0 && !loading && (
+                  {walis.length === 0 && !loading && (
                     <tr>
-                      <td colSpan={5} className="px-6 py-10 text-center text-slate-400">
+                      <td colSpan={6} className="px-6 py-10 text-center text-slate-400">
                         Belum ada data akun wali santri.
                       </td>
                     </tr>
@@ -250,21 +284,30 @@ export default function MasterWaliPage() {
                 </tbody>
               </table>
             </div>
+
+            {/* Pagination Component */}
+            <Pagination
+              currentPage={currentPage}
+              totalItems={pagination?.total || 0}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+            />
           </div>
         </main>
-      </div>
 
       {/* Modal Tambah Wali Santri */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-5">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="text-base font-bold text-slate-900">Tambah Akun Wali Santri</h3>
               <button
+                type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 text-lg leading-none cursor-pointer"
+                aria-label="Tutup dialog"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-600"
               >
-                ✕
+                <X size={20} />
               </button>
             </div>
 
@@ -286,7 +329,7 @@ export default function MasterWaliPage() {
                   placeholder="Contoh: Budi Santoso (Ayah Fatih)"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500"
+                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                 />
               </div>
 
@@ -300,7 +343,7 @@ export default function MasterWaliPage() {
                   placeholder="wali.budi@gmail.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500"
+                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                 />
               </div>
 
@@ -313,7 +356,7 @@ export default function MasterWaliPage() {
                   placeholder="081234567890"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500"
+                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                 />
               </div>
 
@@ -321,14 +364,26 @@ export default function MasterWaliPage() {
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                   Kata Sandi Awal
                 </label>
-                <input
-                  type="password"
-                  required
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500"
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    autoComplete="new-password"
+                    minLength={6}
+                    placeholder="Minimal 6 karakter"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 pr-12 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    aria-label={showPassword ? 'Sembunyikan kata sandi' : 'Tampilkan kata sandi'}
+                    className="absolute inset-y-0 right-0 inline-flex w-11 items-center justify-center text-slate-500 hover:text-slate-800"
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
                 <p className="text-[11px] text-slate-400 mt-1">
                   Wali santri dapat menggunakan email dan kata sandi ini untuk login di aplikasi mobile.
                 </p>
@@ -354,6 +409,6 @@ export default function MasterWaliPage() {
           </div>
         </div>
       )}
-    </div>
+    </AppShell>
   );
 }

@@ -3,6 +3,7 @@
 import React, { useEffect } from 'react';
 import './globals.css';
 import { useAuthStore } from '@/store/useAuthStore';
+import { ToastProvider } from '@/components/ui/Toast';
 
 export default function RootLayout({
   children,
@@ -15,6 +16,13 @@ export default function RootLayout({
     loadFromStorage();
   }, [loadFromStorage]);
 
+  useEffect(() => {
+    const stored = localStorage.getItem('quriva-theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const shouldUseDark = stored ? stored === 'dark' : prefersDark;
+    document.documentElement.classList.toggle('dark', shouldUseDark);
+  }, []);
+
   return (
     <html lang="id">
       <head>
@@ -26,7 +34,7 @@ export default function RootLayout({
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </head>
       <body className="min-h-screen bg-slate-50 text-slate-900 antialiased font-sans">
-        {children}
+        <ToastProvider>{children}</ToastProvider>
       </body>
     </html>
   );

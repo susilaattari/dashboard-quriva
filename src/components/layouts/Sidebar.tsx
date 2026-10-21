@@ -17,7 +17,9 @@ import {
   LogOut,
   ShieldAlert,
   HeartHandshake,
+  Sparkles,
   Lock,
+  X,
 } from 'lucide-react';
 
 interface NavItem {
@@ -27,7 +29,12 @@ interface NavItem {
   featureKey?: string;
 }
 
-export default function Sidebar() {
+interface SidebarProps {
+  onNavigate?: () => void;
+  onClose?: () => void;
+}
+
+export default function Sidebar({ onNavigate, onClose }: SidebarProps) {
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
   const isSuperAdmin = user?.role === 'super_admin';
@@ -44,6 +51,7 @@ export default function Sidebar() {
     { href: '/superadmin/dashboard', label: 'Ringkasan SaaS', icon: LayoutDashboard },
     { href: '/superadmin/tenants', label: 'Kelola Tenant', icon: Building2 },
     { href: '/superadmin/packages', label: 'Paket Langganan', icon: Package },
+    { href: '/superadmin/dashboard-content', label: 'Konten Portal & Kontak', icon: Sparkles },
     { href: '/superadmin/lms-global', label: 'LMS Global Tahsin', icon: BookOpen },
   ];
 
@@ -75,18 +83,18 @@ export default function Sidebar() {
     : tenantAdminLinks;
 
   return (
-    <aside className="w-64 bg-slate-900 text-white min-h-screen flex flex-col justify-between border-r border-slate-800 shadow-xl select-none">
-      <div>
+    <aside className="flex h-full w-64 shrink-0 select-none flex-col justify-between border-r border-slate-200 bg-white text-slate-700 shadow-sm">
+      <div className="flex min-h-0 flex-1 flex-col">
         {/* Brand / Logo */}
-        <div className="p-6 border-b border-slate-800/80 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center font-bold text-white shadow-md shadow-emerald-500/20">
-            📖
+        <div className="flex items-center gap-3 border-b border-slate-200 p-5 lg:p-6">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand font-bold text-white shadow-sm">
+            <BookOpen size={20} />
           </div>
-          <div>
-            <h1 className="font-bold text-base leading-tight tracking-wide text-white">
-              {isSuperAdmin ? 'SaaS Tahfidz' : user?.tenant?.name || 'Portal Institusi'}
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-base font-bold leading-tight tracking-wide text-slate-700">
+              {isSuperAdmin ? 'Quriva Control Center' : user?.tenant?.name || 'Portal Institusi'}
             </h1>
-            <p className="text-xs text-emerald-400 font-medium">
+            <p className="text-xs font-medium text-brand">
               {isSuperAdmin
                 ? 'Super Admin Portal'
                 : isGuru
@@ -94,10 +102,21 @@ export default function Sidebar() {
                 : 'Admin Institusi'}
             </p>
           </div>
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              autoFocus
+              aria-label="Tutup menu navigasi"
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+            >
+              <X size={20} />
+            </button>
+          )}
         </div>
 
         {/* Navigation Items */}
-        <nav className="p-4 space-y-1.5">
+        <nav className="flex-1 overflow-y-auto p-4 space-y-1.5" aria-label="Navigasi utama">
           <p className="px-3 text-[11px] font-semibold tracking-wider text-slate-400 uppercase mb-2">
             Menu Utama
           </p>
@@ -110,20 +129,22 @@ export default function Sidebar() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                onClick={onNavigate}
+                aria-current={isActive ? 'page' : undefined}
+                className={`flex min-h-11 items-center justify-between rounded-lg border-l-[3px] px-3.5 py-2.5 text-sm font-medium transition-colors ${
                   isActive
-                    ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                    ? 'bg-brand-soft text-brand border-brand font-semibold'
                     : isLocked
-                    ? 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
-                    : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                    ? 'border-transparent text-slate-400 hover:bg-slate-100 hover:text-slate-500'
+                    : 'border-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-700'
                 }`}
               >
                 <div className="flex items-center gap-3 truncate">
-                  <Icon size={18} className={isActive ? 'text-white' : isLocked ? 'text-slate-500' : 'text-slate-400'} />
+                  <Icon size={18} className={isActive ? 'text-brand' : isLocked ? 'text-slate-300' : 'text-slate-400'} />
                   <span className="truncate">{item.label}</span>
                 </div>
                 {isLocked && (
-                  <span className="flex items-center gap-1 text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-medium border border-amber-500/30 shrink-0 ml-1">
+                  <span className="flex items-center gap-1 text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-medium border border-slate-200 shrink-0 ml-1">
                     <Lock size={10} />
                     <span>PRO</span>
                   </span>
@@ -135,30 +156,30 @@ export default function Sidebar() {
       </div>
 
       {/* User Info & Logout Footer */}
-      <div className="p-4 border-t border-slate-800/80">
-        <div className="px-3 py-2.5 bg-slate-800/60 rounded-lg mb-3">
+      <div className="shrink-0 border-t border-slate-200 p-4">
+        <div className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg mb-3">
           <div className="flex items-center justify-between mb-1.5">
             <div className="overflow-hidden pr-2">
-              <p className="text-xs font-semibold text-white truncate">{user?.name || 'Administrator'}</p>
+              <p className="text-xs font-semibold text-slate-700 truncate">{user?.name || 'Administrator'}</p>
               <p className="text-[11px] text-slate-400 truncate">{user?.email || 'admin@domain.com'}</p>
             </div>
             <span
               className={`text-[10px] px-2 py-0.5 rounded font-mono font-semibold shrink-0 ${
                 isSuperAdmin
-                  ? 'bg-purple-500/20 text-purple-300'
+                  ? 'bg-slate-200 text-slate-700'
                   : isGuru
-                  ? 'bg-blue-500/20 text-blue-300'
-                  : 'bg-emerald-500/20 text-emerald-300'
+                  ? 'bg-slate-100 text-slate-600'
+                  : 'bg-brand-soft text-brand'
               }`}
             >
               {isSuperAdmin ? 'SUPER' : isGuru ? 'GURU' : 'TENANT'}
             </span>
           </div>
           {!isSuperAdmin && (
-            <div className="pt-2 border-t border-slate-700/50 space-y-1 text-[11px]">
+            <div className="pt-2 border-t border-slate-200 space-y-1 text-[11px]">
               <div className="flex items-center justify-between">
                 <span className="text-slate-400">Paket:</span>
-                <span className="font-semibold text-amber-300 truncate max-w-[120px]">
+                <span className="font-semibold text-brand truncate max-w-[120px]">
                   {user?.package?.name || 'Paket Aktif'}
                 </span>
               </div>
@@ -166,7 +187,7 @@ export default function Sidebar() {
                 <div className="flex items-center justify-between text-[10px]">
                   <span className="text-slate-400">Masa Aktif:</span>
                   <span className={`font-mono font-bold ${
-                    user.tenant.days_remaining <= 7 ? 'text-amber-400 animate-pulse' : 'text-emerald-400'
+                    user.tenant.days_remaining <= 7 ? 'text-rose-600' : 'text-brand'
                   }`}>
                     {user.tenant.days_remaining} hari lagi
                   </span>
@@ -177,8 +198,9 @@ export default function Sidebar() {
         </div>
 
         <button
+          type="button"
           onClick={logout}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-rose-300 hover:text-rose-200 hover:bg-rose-500/10 rounded-lg transition-colors"
+          className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
         >
           <LogOut size={16} />
           <span>Keluar Sistem</span>

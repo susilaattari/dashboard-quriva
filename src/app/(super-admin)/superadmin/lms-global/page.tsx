@@ -1,9 +1,12 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import Sidebar from '@/components/layouts/Sidebar';
-import Navbar from '@/components/layouts/Navbar';
+import AppShell from '@/components/layouts/AppShell';
 import api from '@/services/api';
+import { buildLmsMetadataPayload, validateQuizQuestions } from '@/lib/lms';
+import LmsMaterialPreviewDialog from '@/components/lms/LmsMaterialPreviewDialog';
+import LmsGlobalMaterialCard from '@/components/superadmin/LmsGlobalMaterialCard';
+import LmsGlobalSectionTabs from '@/components/superadmin/LmsGlobalSectionTabs';
 import {
   BookOpen,
   Video,
@@ -30,6 +33,7 @@ import {
   Users,
   ShieldCheck,
 } from 'lucide-react';
+import Pagination from '@/components/ui/Pagination';
 
 interface QuizQuestion {
   id: number;
@@ -71,6 +75,8 @@ export default function SuperAdminLMSGlobal() {
   const [gurus, setGurus] = useState<any[]>([]);
   const [loadingGurus, setLoadingGurus] = useState(false);
   const [guruSearch, setGuruSearch] = useState('');
+  const [guruCurrentPage, setGuruCurrentPage] = useState(1);
+  const guruPageSize = 8;
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -246,13 +252,16 @@ export default function SuperAdminLMSGlobal() {
       setSubmitting(true);
       setErrorMsg('');
 
-      const metadataPayload = {
-        summary: summary.trim(),
-        schedule_date: scheduleDate || null,
-        duration_minutes: durationMinutes ? Number(durationMinutes) : null,
-        text_content: type === 'text' ? textContent : null,
-        questions: type === 'quiz' ? questions : null,
-      };
+      if (type === 'quiz') validateQuizQuestions(questions);
+
+      const metadataPayload = buildLmsMetadataPayload({
+        summary,
+        scheduleDate,
+        durationMinutes,
+        type,
+        textContent,
+        questions,
+      });
 
       const payload = {
         title: title.trim(),
@@ -355,8 +364,8 @@ export default function SuperAdminLMSGlobal() {
     const matchesTab = activeTab === 'all' || m.type === activeTab;
     const matchesSearch =
       !searchQuery ||
-      m.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (m.metadata?.summary && m.metadata.summary.toLowerCase().includes(searchQuery.toLowerCase()));
+      String(m.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (m.metadata?.summary && String(m.metadata.summary).toLowerCase().includes(searchQuery.toLowerCase()));
     return matchesTab && matchesSearch;
   });
 
@@ -383,60 +392,23 @@ export default function SuperAdminLMSGlobal() {
   const uniqueTenantCount = new Set(gurus.map((g) => g.tenant_name || g.tenant_id).filter(Boolean)).size;
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
-      <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0">
-        <Navbar
+    <AppShell
           title="Manajemen LMS Global Tahsin"
           subtitle="Modul kurikulum terpusat SaaS yang disalurkan secara otomatis ke seluruh tenant berlangganan"
-        />
+        >
 
-        <main className="p-8 space-y-6 flex-1">
-          {/* Top Section Navigation Tabs */}
-          <div className="flex items-center gap-3 border-b border-slate-200 pb-4">
-            <button
-              onClick={() => setActiveSection('materials')}
-              className={`flex items-center gap-2.5 px-5 py-2.5 rounded-2xl font-bold text-sm transition-all cursor-pointer ${
-                activeSection === 'materials'
-                  ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20'
-                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
-              }`}
-            >
-              <Globe size={18} />
-              <span>Katalog Modul Global</span>
-              <span
-                className={`text-xs px-2 py-0.5 rounded-full font-extrabold ${
-                  activeSection === 'materials' ? 'bg-purple-700 text-white' : 'bg-slate-100 text-slate-700'
-                }`}
-              >
-                {materials.length}
-              </span>
-            </button>
-
-            <button
-              onClick={() => setActiveSection('contributors')}
-              className={`flex items-center gap-2.5 px-5 py-2.5 rounded-2xl font-bold text-sm transition-all cursor-pointer ${
-                activeSection === 'contributors'
-                  ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20'
-                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
-              }`}
-            >
-              <ShieldCheck size={18} />
-              <span>Kelola Izin Guru Kontributor Global</span>
-              <span
-                className={`text-xs px-2.5 py-0.5 rounded-full font-extrabold ${
-                  activeSection === 'contributors' ? 'bg-purple-700 text-white' : 'bg-purple-100 text-purple-700'
-                }`}
-              >
-                {globalContributorCount} Kontributor
-              </span>
-            </button>
-          </div>
+        <main className="p-4 sm:p-6 lg:p-8 space-y-6 flex-1">
+          <LmsGlobalSectionTabs
+            activeSection={activeSection}
+            materialCount={materials.length}
+            contributorCount={globalContributorCount}
+            onChange={setActiveSection}
+          />
 
           {activeSection === 'materials' ? (
             <>
               {/* Header Action & Stat Bar */}
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm">
             <div className="flex items-center gap-4">
               <div className="w-14 h-14 rounded-2xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-600 shadow-inner">
                 <Globe size={28} />
@@ -481,7 +453,7 @@ export default function SuperAdminLMSGlobal() {
                   onClick={() => setActiveTab(stat.id as any)}
                   className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
                     isActive
-                      ? 'border-purple-500 bg-purple-50/40 shadow-xs ring-2 ring-purple-500/20'
+                      ? 'border-purple-500 bg-purple-50/40 shadow-sm ring-2 ring-purple-500/20'
                       : 'border-slate-200/80 bg-white hover:border-slate-300'
                   }`}
                 >
@@ -503,7 +475,7 @@ export default function SuperAdminLMSGlobal() {
               placeholder="Cari judul materi global, deskripsi topik..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-white border border-slate-200 rounded-2xl pl-11 pr-4 py-3 text-sm focus:outline-hidden focus:border-purple-500 transition-colors"
+              className="w-full bg-white border border-slate-200 rounded-2xl pl-11 pr-4 py-3 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-purple-500 transition-colors"
             />
           </div>
 
@@ -525,141 +497,19 @@ export default function SuperAdminLMSGlobal() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredMaterials.map((m) => {
-                const meta = m.metadata || {};
-                const badge = getTypeBadge(m.type);
-                const IconComp = badge.icon;
-                const formattedDate = formatSchedule(meta.schedule_date);
-                const questionCount = meta.questions?.length || 0;
-
-                return (
-                  <div
-                    key={m.id}
-                    className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-xs flex flex-col justify-between hover:shadow-md transition-all relative overflow-hidden"
-                  >
-                    <div>
-                      {/* Top Row */}
-                      <div className="flex items-center justify-between mb-4">
-                        <div className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold ${badge.iconBg}`}>
-                          <IconComp size={22} />
-                        </div>
-
-                        <div className="flex items-center gap-1.5">
-                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${badge.bg}`}>
-                            {badge.label}
-                          </span>
-                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-purple-100 text-purple-800">
-                            Global
-                          </span>
-                        </div>
-                      </div>
-
-                      <h4 className="font-bold text-base text-slate-900 mb-2 leading-snug">
-                        {m.title}
-                      </h4>
-
-                      <p className="text-xs text-slate-500 leading-relaxed mb-4 line-clamp-3">
-                        {meta.summary || (typeof m.description === 'string' && !m.description.startsWith('{') ? m.description : 'Tidak ada keterangan.')}
-                      </p>
-
-                      {/* Meta info tags */}
-                      <div className="space-y-1.5 mb-4">
-                        {formattedDate && (
-                          <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 px-2.5 py-1 rounded-xl font-medium w-fit">
-                            <Calendar size={13} className="shrink-0" />
-                            <span>Jadwal: {formattedDate}</span>
-                            {meta.duration_minutes && <span>({meta.duration_minutes} mnt)</span>}
-                          </div>
-                        )}
-
-                        {m.type === 'quiz' && (
-                          <div className="flex items-center gap-1.5 text-xs text-blue-700 bg-blue-50 px-2.5 py-1 rounded-xl font-medium w-fit">
-                            <HelpCircle size={13} className="shrink-0" />
-                            <span>{questionCount} Soal Pilihan Ganda Interaktif</span>
-                          </div>
-                        )}
-
-                        {m.type === 'text' && (
-                          <div className="flex items-center gap-1.5 text-xs text-slate-600 bg-slate-100 px-2.5 py-1 rounded-xl font-medium w-fit">
-                            <FileText size={13} className="shrink-0" />
-                            <span>Artikel Panduan & Teks Mandiri</span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Info Pembuat Materi / Soal */}
-                      <div className="pt-3 pb-1 border-t border-slate-100 flex items-center justify-between gap-2 text-[11px] text-slate-500">
-                        <div className="flex items-center gap-1.5 truncate">
-                          <div className="w-5 h-5 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-[9px] shrink-0">
-                            {m.author_name ? m.author_name[0].toUpperCase() : 'S'}
-                          </div>
-                          <span className="truncate">
-                            <span className="text-slate-400">Pembuat: </span>
-                            <span className="font-semibold text-slate-800">{m.author_name || 'Super Administrator'}</span>
-                          </span>
-                        </div>
-                        <span className="text-[10px] text-purple-700 font-semibold bg-purple-50 px-2 py-0.5 rounded-md border border-purple-100 shrink-0">
-                          {m.creator_role || 'Super Admin (Pusat)'}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Actions Bar */}
-                    <div className="pt-4 border-t border-slate-100 flex items-center justify-between gap-2">
-                      {/* Primary Content Action */}
-                      {m.type === 'quiz' ? (
-                        <button
-                          onClick={() => {
-                            setPreviewItem(m);
-                            setActiveQuizIndex(0);
-                            setSelectedQuizAnswers({});
-                          }}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold transition-colors cursor-pointer"
-                        >
-                          <Eye size={14} />
-                          <span>Uji Soal Kuis</span>
-                        </button>
-                      ) : m.type === 'text' ? (
-                        <button
-                          onClick={() => setPreviewItem(m)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 text-xs font-bold transition-colors cursor-pointer"
-                        >
-                          <FileText size={14} />
-                          <span>Baca Materi</span>
-                        </button>
-                      ) : (
-                        <a
-                          href={m.content_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-colors"
-                        >
-                          <span>Buka Tautan</span>
-                          <ExternalLink size={12} />
-                        </a>
-                      )}
-
-                      {/* Super Admin Edit and Delete Actions */}
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => openEditModal(m)}
-                          className="p-1.5 text-slate-500 hover:text-purple-700 hover:bg-purple-50 rounded-lg transition-colors cursor-pointer"
-                          title="Ubah Modul Global"
-                        >
-                          <Edit2 size={15} />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(m)}
-                          className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                          title="Hapus Modul Global"
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+              {filteredMaterials.map((material) => (
+                <LmsGlobalMaterialCard
+                  key={material.id}
+                  material={material}
+                  onPreview={(item) => {
+                    setPreviewItem(item);
+                    setActiveQuizIndex(0);
+                    setSelectedQuizAnswers({});
+                  }}
+                  onEdit={openEditModal}
+                  onDelete={handleDelete}
+                />
+              ))}
             </div>
           )}
         </>
@@ -667,7 +517,7 @@ export default function SuperAdminLMSGlobal() {
         /* Tab: Kelola Izin Guru Kontributor Global */
         <div className="space-y-6">
           {/* Info & Summary Banner */}
-          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div className="flex items-center gap-4">
               <div className="w-14 h-14 rounded-2xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-600 shadow-inner">
                 <ShieldCheck size={28} />
@@ -705,8 +555,11 @@ export default function SuperAdminLMSGlobal() {
               type="text"
               placeholder="Cari guru berdasarkan nama, email, atau nama pesantren..."
               value={guruSearch}
-              onChange={(e) => setGuruSearch(e.target.value)}
-              className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm focus:outline-hidden focus:border-purple-500 transition-colors shadow-xs"
+              onChange={(e) => {
+                setGuruSearch(e.target.value);
+                setGuruCurrentPage(1);
+              }}
+              className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-purple-500 transition-colors shadow-sm"
             />
           </div>
 
@@ -723,39 +576,42 @@ export default function SuperAdminLMSGlobal() {
               <p className="text-xs text-slate-400 mt-1">Coba sesuaikan kata kunci pencarian Anda.</p>
             </div>
           ) : (
-            <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                      <th className="py-4 px-6">Nama Guru & Kontak</th>
-                      <th className="py-4 px-6">Asal Pesantren / Lembaga</th>
-                      <th className="py-4 px-6 text-center">Izin LMS Lokal</th>
-                      <th className="py-4 px-6 text-center">Wewenang LMS Global</th>
-                      <th className="py-4 px-6 text-right">Aksi Super Admin</th>
+                <table className="w-full min-w-[1000px] text-left text-sm">
+                  <thead className="bg-emerald-700 text-white text-xs uppercase font-semibold">
+<tr>
+<th className="px-4 py-3.5 w-14 text-center whitespace-nowrap">No</th>
+<th className="px-4 py-3.5 whitespace-nowrap">Nama Guru & Kontak</th>
+                      <th className="px-4 py-3.5 whitespace-nowrap">Asal Pesantren / Lembaga</th>
+                      <th className="px-4 py-3.5 whitespace-nowrap text-center">Izin LMS Lokal</th>
+                      <th className="px-4 py-3.5 whitespace-nowrap text-center">Wewenang LMS Global</th>
+                      <th className="px-4 py-3.5 whitespace-nowrap text-right">Aksi Super Admin</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredGurus.map((guru) => (
-                      <tr key={guru.id} className="hover:bg-slate-50/60 transition-colors">
-                        <td className="py-4 px-6">
+                  <tbody className="divide-y divide-slate-200/70 text-slate-700">
+                    {filteredGurus
+                      .slice((guruCurrentPage - 1) * guruPageSize, guruCurrentPage * guruPageSize)
+                      .map((guru, idx) => (
+                      <tr key={guru.id} className="group">
+<td className="px-4 py-3 text-center font-semibold text-slate-600 whitespace-nowrap bg-slate-100 group-hover:bg-emerald-100/70 transition-colors">
+{(guruCurrentPage - 1) * guruPageSize + idx + 1}
+</td>
+                        <td className="px-4 py-3 whitespace-nowrap bg-white group-hover:bg-emerald-50 transition-colors">
                           <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-2xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-sm shrink-0 border border-purple-200">
-                              {guru.name ? guru.name.charAt(0).toUpperCase() : 'G'}
-                            </div>
                             <div>
-                              <p className="font-bold text-slate-900 leading-tight">{guru.name}</p>
+                              <p className="font-bold text-slate-700 leading-tight">{guru.name}</p>
                               <p className="text-xs text-slate-400 mt-0.5">{guru.email}</p>
                               {guru.phone && <p className="text-[11px] text-slate-400">{guru.phone}</p>}
                             </div>
                           </div>
                         </td>
-                        <td className="py-4 px-6">
+                        <td className="px-4 py-3 whitespace-nowrap bg-slate-50 group-hover:bg-emerald-50 transition-colors">
                           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-100 text-slate-700 text-xs font-semibold">
                             {guru.tenant_name || `Tenant #${guru.tenant_id}`}
                           </span>
                         </td>
-                        <td className="py-4 px-6 text-center">
+                        <td className="px-4 py-3 whitespace-nowrap text-center bg-white group-hover:bg-emerald-50 transition-colors">
                           {guru.can_create_lms_local ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                               <Check size={12} />
@@ -767,10 +623,10 @@ export default function SuperAdminLMSGlobal() {
                             </span>
                           )}
                         </td>
-                        <td className="py-4 px-6 text-center">
+                        <td className="px-4 py-3 whitespace-nowrap text-center bg-slate-50 group-hover:bg-emerald-50 transition-colors">
                           {guru.can_create_lms_global ? (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200 shadow-xs">
-                              <ShieldCheck size={14} className="text-purple-600" />
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-sm">
+                              <ShieldCheck size={14} className="text-emerald-600" />
                               Kontributor Global Aktif
                             </span>
                           ) : (
@@ -779,13 +635,13 @@ export default function SuperAdminLMSGlobal() {
                             </span>
                           )}
                         </td>
-                        <td className="py-4 px-6 text-right">
+                        <td className="px-4 py-3 whitespace-nowrap text-right bg-white group-hover:bg-emerald-50 transition-colors">
                           <button
                             onClick={() => handleToggleGlobalContributor(guru.id, guru.can_create_lms_global)}
                             className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                               guru.can_create_lms_global
                                 ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200'
-                                : 'bg-purple-600 text-white hover:bg-purple-700 shadow-xs shadow-purple-600/20'
+                                : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm shadow-emerald-600/20'
                             }`}
                           >
                             {guru.can_create_lms_global ? (
@@ -806,16 +662,23 @@ export default function SuperAdminLMSGlobal() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Pagination Component */}
+              <Pagination
+                currentPage={guruCurrentPage}
+                totalItems={filteredGurus.length}
+                pageSize={guruPageSize}
+                onPageChange={setGuruCurrentPage}
+              />
             </div>
           )}
         </div>
       )}
     </main>
-      </div>
 
       {/* Modal Tambah / Ubah Materi Global */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-100 my-8 space-y-5">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
@@ -827,8 +690,10 @@ export default function SuperAdminLMSGlobal() {
                 </p>
               </div>
               <button
+                type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
+                aria-label="Tutup dialog"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
               >
                 <X size={20} />
               </button>
@@ -853,7 +718,7 @@ export default function SuperAdminLMSGlobal() {
                     placeholder="Contoh: Kaidah Makharijul Huruf Lengkap"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-purple-500"
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-purple-500"
                   />
                 </div>
 
@@ -864,13 +729,13 @@ export default function SuperAdminLMSGlobal() {
                   <select
                     value={type}
                     onChange={(e) => setType(e.target.value as any)}
-                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-purple-500 bg-white font-medium"
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-purple-500 bg-white font-medium"
                   >
-                    <option value="video">🎥 Video YouTube Tutorial</option>
-                    <option value="quiz">📝 Latihan Soal / Kuis Interaktif</option>
-                    <option value="audio">🎙️ Audio / Podcast Kajian</option>
-                    <option value="text">📖 Teks / Bacaan & Panduan</option>
-                    <option value="live_meet">📅 Sesi Live Google Meet / Zoom</option>
+                    <option value="video">Video YouTube Tutorial</option>
+                    <option value="quiz">Latihan Soal / Kuis Interaktif</option>
+                    <option value="audio">Audio / Podcast Kajian</option>
+                    <option value="text">Teks / Bacaan & Panduan</option>
+                    <option value="live_meet">Sesi Live Google Meet / Zoom</option>
                   </select>
                 </div>
               </div>
@@ -885,7 +750,7 @@ export default function SuperAdminLMSGlobal() {
                   placeholder="Penjelasan ringkas mengenai topik materi ini..."
                   value={summary}
                   onChange={(e) => setSummary(e.target.value)}
-                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2 text-sm focus:outline-hidden focus:border-purple-500"
+                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-purple-500"
                 />
               </div>
 
@@ -900,7 +765,7 @@ export default function SuperAdminLMSGlobal() {
                     type="datetime-local"
                     value={scheduleDate}
                     onChange={(e) => setScheduleDate(e.target.value)}
-                    className="w-full border border-slate-300 bg-white rounded-xl px-3 py-2 text-xs focus:outline-hidden focus:border-purple-500"
+                    className="w-full border border-slate-300 bg-white rounded-xl px-3 py-2 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-purple-500"
                   />
                 </div>
 
@@ -915,7 +780,7 @@ export default function SuperAdminLMSGlobal() {
                     placeholder="30"
                     value={durationMinutes}
                     onChange={(e) => setDurationMinutes(e.target.value)}
-                    className="w-full border border-slate-300 bg-white rounded-xl px-3 py-2 text-xs focus:outline-hidden focus:border-purple-500"
+                    className="w-full border border-slate-300 bg-white rounded-xl px-3 py-2 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-purple-500"
                   />
                 </div>
               </div>
@@ -931,7 +796,7 @@ export default function SuperAdminLMSGlobal() {
                     placeholder="https://www.youtube.com/watch?v=..."
                     value={contentUrl}
                     onChange={(e) => setContentUrl(e.target.value)}
-                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-purple-500"
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-purple-500"
                   />
                 </div>
               )}
@@ -946,7 +811,7 @@ export default function SuperAdminLMSGlobal() {
                     placeholder="https://meet.google.com/abc-defg-hij"
                     value={contentUrl}
                     onChange={(e) => setContentUrl(e.target.value)}
-                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-purple-500"
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-purple-500"
                   />
                 </div>
               )}
@@ -961,7 +826,7 @@ export default function SuperAdminLMSGlobal() {
                     placeholder="https://example.com/audio/murottal.mp3"
                     value={contentUrl}
                     onChange={(e) => setContentUrl(e.target.value)}
-                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-purple-500"
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-purple-500"
                   />
                 </div>
               )}
@@ -976,7 +841,7 @@ export default function SuperAdminLMSGlobal() {
                     placeholder="Tuliskan materi tajwid, kaidah membaca, terjemahan, atau dalil di sini..."
                     value={textContent}
                     onChange={(e) => setTextContent(e.target.value)}
-                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-purple-500 font-sans"
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-purple-500 font-sans"
                   />
                 </div>
               )}
@@ -1032,7 +897,7 @@ export default function SuperAdminLMSGlobal() {
                             placeholder={`Tulis pertanyaan soal #${qIdx + 1}...`}
                             value={q.question}
                             onChange={(e) => handleQuestionTextChange(qIdx, e.target.value)}
-                            className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-medium focus:outline-hidden focus:border-purple-500"
+                            className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-purple-500"
                           />
                         </div>
 
@@ -1040,7 +905,7 @@ export default function SuperAdminLMSGlobal() {
                           <p className="text-[11px] font-semibold text-slate-500">
                             Pilihan Jawaban (Klik radio button untuk memilih kunci jawaban):
                           </p>
-                          {q.options.map((opt, optIdx) => (
+                          {(q.options || []).map((opt, optIdx) => (
                             <div key={optIdx} className="flex items-center gap-2">
                               <input
                                 type="radio"
@@ -1058,7 +923,7 @@ export default function SuperAdminLMSGlobal() {
                                 placeholder={`Opsi ${String.fromCharCode(65 + optIdx)}`}
                                 value={opt}
                                 onChange={(e) => handleOptionChange(qIdx, optIdx, e.target.value)}
-                                className="flex-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-hidden focus:border-purple-500"
+                                className="flex-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-purple-500"
                               />
                             </div>
                           ))}
@@ -1070,7 +935,7 @@ export default function SuperAdminLMSGlobal() {
                             placeholder="Penjelasan / Pembahasan Jawaban (Opsional)..."
                             value={q.explanation || ''}
                             onChange={(e) => handleExplanationChange(qIdx, e.target.value)}
-                            className="w-full bg-white border border-dashed border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-600 focus:outline-hidden focus:border-purple-500"
+                            className="w-full bg-white border border-dashed border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-purple-500"
                           />
                         </div>
                       </div>
@@ -1100,156 +965,15 @@ export default function SuperAdminLMSGlobal() {
         </div>
       )}
 
-      {/* Preview Modal (Kuis Player / Baca Teks) */}
-      {previewItem && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-slate-100 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider bg-purple-100 text-purple-800 px-2.5 py-0.5 rounded-full">
-                  Pratinjau Modul Global
-                </span>
-                <h3 className="text-base font-bold text-slate-900 mt-1">{previewItem.title}</h3>
-                <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
-                  <span>Pembuat: <strong className="text-slate-700 font-semibold">{previewItem.author_name || 'Super Administrator'}</strong></span>
-                  <span className="text-[10px] text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded font-medium border border-purple-100">
-                    {previewItem.creator_role || 'Super Admin (Pusat)'}
-                  </span>
-                </div>
-              </div>
-              <button
-                onClick={() => setPreviewItem(null)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
-              >
-                <X size={20} />
-              </button>
-            </div>
+      <LmsMaterialPreviewDialog
+        material={previewItem}
+        activeQuizIndex={activeQuizIndex}
+        selectedAnswers={selectedQuizAnswers}
+        onSelectAnswer={(index, option) => setSelectedQuizAnswers({ ...selectedQuizAnswers, [index]: option })}
+        onQuizIndexChange={setActiveQuizIndex}
+        onClose={() => setPreviewItem(null)}
+      />
 
-            {previewItem.type === 'text' && (
-              <div className="space-y-4 max-h-[400px] overflow-y-auto pr-1">
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-sm text-slate-700 whitespace-pre-wrap leading-relaxed font-sans">
-                  {previewItem.metadata?.text_content || 'Belum ada konten teks.'}
-                </div>
-              </div>
-            )}
-
-            {previewItem.type === 'quiz' && (
-              <div className="space-y-5">
-                {previewItem.metadata?.questions && previewItem.metadata.questions.length > 0 ? (
-                  <div>
-                    {/* Header Quiz Indicator */}
-                    <div className="flex items-center justify-between mb-3 text-xs text-slate-500 font-semibold">
-                      <span>
-                        Soal {activeQuizIndex + 1} dari {previewItem.metadata.questions.length}
-                      </span>
-                      <span className="text-purple-600">Simulasi Tampilan Santri</span>
-                    </div>
-
-                    {/* Question Card */}
-                    {(() => {
-                      const currentQ = previewItem.metadata.questions[activeQuizIndex];
-                      const selectedAns = selectedQuizAnswers[activeQuizIndex];
-                      const hasAnswered = selectedAns !== undefined;
-
-                      return (
-                        <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-4">
-                          <h4 className="text-sm font-bold text-slate-900 leading-snug">
-                            {currentQ.question}
-                          </h4>
-
-                          <div className="space-y-2">
-                            {currentQ.options.map((opt, oIdx) => {
-                              const isSelected = selectedAns === oIdx;
-                              const isCorrect = currentQ.correctAnswer === oIdx;
-
-                              let optClass = 'bg-white border-slate-200 text-slate-700 hover:border-purple-300';
-                              if (hasAnswered) {
-                                if (isCorrect) {
-                                  optClass = 'bg-emerald-50 border-emerald-300 text-emerald-800 font-bold';
-                                } else if (isSelected) {
-                                  optClass = 'bg-rose-50 border-rose-300 text-rose-800 font-bold';
-                                }
-                              }
-
-                              return (
-                                <button
-                                  key={oIdx}
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedQuizAnswers({
-                                      ...selectedQuizAnswers,
-                                      [activeQuizIndex]: oIdx,
-                                    });
-                                  }}
-                                  className={`w-full text-left p-3 rounded-xl border text-xs flex items-center justify-between transition-all cursor-pointer ${optClass}`}
-                                >
-                                  <div className="flex items-center gap-2.5">
-                                    <span className="w-5 h-5 rounded-full bg-slate-100 flex items-center justify-center font-bold text-[10px] text-slate-600">
-                                      {String.fromCharCode(65 + oIdx)}
-                                    </span>
-                                    <span>{opt}</span>
-                                  </div>
-
-                                  {hasAnswered && isCorrect && (
-                                    <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
-                                  )}
-                                </button>
-                              );
-                            })}
-                          </div>
-
-                          {hasAnswered && currentQ.explanation && (
-                            <div className="p-3 bg-purple-50 text-purple-800 rounded-xl text-xs border border-purple-200">
-                              <span className="font-bold">Pembahasan: </span>
-                              <span>{currentQ.explanation}</span>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
-
-                    {/* Navigation between questions */}
-                    <div className="flex items-center justify-between pt-2">
-                      <button
-                        type="button"
-                        disabled={activeQuizIndex === 0}
-                        onClick={() => setActiveQuizIndex((prev) => Math.max(0, prev - 1))}
-                        className="px-4 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-xs font-bold text-slate-700 rounded-xl transition-colors cursor-pointer"
-                      >
-                        ← Soal Sebelumnya
-                      </button>
-
-                      <button
-                        type="button"
-                        disabled={activeQuizIndex === previewItem.metadata.questions.length - 1}
-                        onClick={() =>
-                          setActiveQuizIndex((prev) =>
-                            Math.min(previewItem.metadata!.questions!.length - 1, prev + 1)
-                          )
-                        }
-                        className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-40 text-xs font-bold text-white rounded-xl transition-colors cursor-pointer"
-                      >
-                        Soal Berikutnya →
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-400 text-center py-6">Kuis ini belum memiliki soal.</p>
-                )}
-              </div>
-            )}
-
-            <div className="pt-2 text-right">
-              <button
-                onClick={() => setPreviewItem(null)}
-                className="px-5 py-2 bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-700 rounded-xl transition-colors cursor-pointer"
-              >
-                Tutup Pratinjau
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    </AppShell>
   );
 }

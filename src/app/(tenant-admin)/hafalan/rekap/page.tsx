@@ -1,9 +1,14 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import Sidebar from '@/components/layouts/Sidebar';
-import Navbar from '@/components/layouts/Navbar';
+import AppShell from '@/components/layouts/AppShell';
 import api from '@/services/api';
+import ErrorState from '@/components/ui/ErrorState';
+import Dialog from '@/components/ui/Dialog';
+import { useToast } from '@/components/ui/Toast';
+import { QURAN_SURAHS } from '@/data/quranSurah';
+import { useAuthStore } from '@/store/useAuthStore';
+import { usePaginatedList } from '@/hooks/usePaginatedList';
 import {
   FileCheck,
   Plus,
@@ -15,13 +20,37 @@ import {
   CheckCircle2,
   AlertCircle,
 } from 'lucide-react';
+import Pagination from '@/components/ui/Pagination';
 
 export default function RekapHafalanPage() {
-  const [histories, setHistories] = useState<any[]>([]);
+  const { showToast } = useToast();
+  const { user } = useAuthStore();
+  const isNonPesantren = user?.tenant?.institution_type === 'non_pesantren' || user?.tenant?.has_wali === false;
+  const memberLabel = user?.tenant?.member_label || (isNonPesantren ? 'Peserta' : 'Santri');
+  const today = new Date().toISOString().slice(0, 10);
   const [santris, setSantris] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [santriLoading, setSantriLoading] = useState(true);
+  const [santriError, setSantriError] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [santriFilter, setSantriFilter] = useState('');
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
+  const {
+    items: histories,
+    pagination,
+    error: listError,
+    isLoading: listLoading,
+    mutate: mutateHistories,
+  } = usePaginatedList<any>('/hafalan/histories', {
+    page: currentPage,
+    per_page: pageSize,
+    type: typeFilter || undefined,
+    santri_id: santriFilter || undefined,
+  });
+  const loading = santriLoading || listLoading;
+  const error = santriError || (listError ? 'Gagal memuat riwayat setoran. Periksa koneksi Anda lalu coba lagi.' : '');
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -29,40 +58,76 @@ export default function RekapHafalanPage() {
   const [type, setType] = useState('ziyadah');
   const [juz, setJuz] = useState(30);
   const [surahNumber, setSurahNumber] = useState(78);
-  const [surahName, setSurahName] = useState('An-Naba');
   const [verseStart, setVerseStart] = useState(1);
   const [verseEnd, setVerseEnd] = useState(10);
   const [grade, setGrade] = useState('Mumtaz');
+  const [dateRecorded, setDateRecorded] = useState(today);
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
+  const fetchSantris = async () => {
+    try {
+      setSantriLoading(true);
+      setSantriError('');
+      const res = await api.get('/santri');
+      setSantris(res.data?.data || []);
+      if (res.data?.data?.length > 0) {
+        setSelectedSantriId(res.data.data[0].id);
+      }
+    } catch (err) {
+      console.error('Failed to load hafalan reference data:', err);
+      setSantriError('Gagal memuat daftar santri. Periksa koneksi Anda lalu coba lagi.');
+    } finally {
+      setSantriLoading(false);
+    }
+  };
+
   useEffect(() => {
-    fetchData();
+    fetchSantris();
   }, []);
 
   const fetchData = async () => {
-    try {
-      setLoading(true);
-      const [histRes, santriRes] = await Promise.all([
-        api.get('/hafalan/histories'),
-        api.get('/santri'),
-      ]);
-      setHistories(histRes.data?.data || []);
-      setSantris(santriRes.data?.data || []);
-      if (santriRes.data?.data?.length > 0) {
-        setSelectedSantriId(santriRes.data.data[0].id);
-      }
-    } catch (err) {
-      console.error('Failed to load hafalan histories:', err);
-    } finally {
-      setLoading(false);
-    }
+    await Promise.all([fetchSantris(), mutateHistories()]);
   };
+
+  useEffect(() => {
+    if (pagination && pagination.total_pages < currentPage) {
+      setCurrentPage(pagination.total_pages);
+    }
+  }, [pagination, currentPage]);
+
+  const selectedSurah = QURAN_SURAHS.find((surah) => surah.number === Number(surahNumber));
 
   const handleRecord = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
+
+    if (!selectedSantriId) {
+      setErrorMsg(`Pilih ${memberLabel.toLowerCase()} terlebih dahulu.`);
+      return;
+    }
+    if (!selectedSurah) {
+      setErrorMsg('Pilih surah yang valid.');
+      return;
+    }
+    if (verseStart < 1 || verseEnd < verseStart) {
+      setErrorMsg('Rentang ayat tidak valid. Ayat selesai harus lebih besar atau sama dengan ayat mulai.');
+      return;
+    }
+    if (verseEnd > selectedSurah.numberOfAyahs) {
+      setErrorMsg(`Surah ${selectedSurah.name} hanya memiliki ${selectedSurah.numberOfAyahs} ayat.`);
+      return;
+    }
+    if (!dateRecorded) {
+      setErrorMsg('Tanggal setoran wajib diisi.');
+      return;
+    }
+    if (dateRecorded > today) {
+      setErrorMsg('Tanggal setoran tidak boleh melebihi hari ini.');
+      return;
+    }
+
     setSubmitting(true);
 
     try {
@@ -70,16 +135,17 @@ export default function RekapHafalanPage() {
         santri_id: Number(selectedSantriId),
         type,
         juz: Number(juz),
-        surah_number: Number(surahNumber),
-        surah_name: surahName,
+        surah_number: selectedSurah.number,
+        surah_name: selectedSurah.name,
         verse_start: Number(verseStart),
         verse_end: Number(verseEnd),
         grade,
         notes,
-        date_recorded: new Date().toISOString().split('T')[0],
+        date_recorded: dateRecorded,
       });
       setIsModalOpen(false);
       setNotes('');
+      showToast('Setoran hafalan berhasil disimpan.');
       fetchData();
     } catch (err: any) {
       setErrorMsg(err.response?.data?.message || err.message || 'Gagal menyimpan setoran hafalan');
@@ -88,31 +154,34 @@ export default function RekapHafalanPage() {
     }
   };
 
-  const filteredHistories = histories.filter((h) => {
-    const matchType = typeFilter ? h.type === typeFilter : true;
-    const matchSantri = santriFilter ? String(h.santri_id) === santriFilter : true;
-    return matchType && matchSantri;
-  });
-
   return (
-    <div className="flex min-h-screen bg-slate-50">
-      <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0">
-        <Navbar
+    <AppShell
           title="Rekapitulasi Mutaba'ah Hafalan"
-          subtitle="Monitoring setoran Ziyadah, ujian Tasmi', dan pengulangan Muroja'ah santri"
-        />
+          subtitle={`Monitoring setoran Ziyadah, ujian Tasmi', dan pengulangan Muroja'ah ${memberLabel.toLowerCase()}`}
+        >
 
-        <main className="p-8 space-y-6 flex-1">
+        <main className="p-4 sm:p-6 lg:p-8 space-y-6 flex-1">
+          {error && (
+            <ErrorState
+              title="Gagal memuat data"
+              description={error}
+              onRetry={fetchData}
+              className="rounded-2xl border border-slate-200 bg-white"
+            />
+          )}
+
           {/* Top action bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3 flex-wrap">
               <select
                 value={santriFilter}
-                onChange={(e) => setSantriFilter(e.target.value)}
-                className="bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-700 shadow-xs focus:outline-hidden focus:border-emerald-500"
+                onChange={(e) => {
+                  setSantriFilter(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-700 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
               >
-                <option value="">Semua Santri</option>
+                <option value="">Semua {memberLabel}</option>
                 {santris.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.full_name}
@@ -122,8 +191,11 @@ export default function RekapHafalanPage() {
 
               <select
                 value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-                className="bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-700 shadow-xs focus:outline-hidden focus:border-emerald-500"
+                onChange={(e) => {
+                  setTypeFilter(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-700 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
               >
                 <option value="">Semua Jenis Setoran</option>
                 <option value="ziyadah">Hafalan Baru (Ziyadah)</option>
@@ -142,32 +214,36 @@ export default function RekapHafalanPage() {
           </div>
 
           {/* Table */}
-          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-semibold border-b border-slate-100">
-                  <tr>
-                    <th className="px-6 py-4">Tanggal & Santri</th>
-                    <th className="px-6 py-4">Jenis Setoran</th>
-                    <th className="px-6 py-4">Surah & Ayat</th>
-                    <th className="px-6 py-4">Nilai Mutaba&apos;ah</th>
-                    <th className="px-6 py-4">Guru Penguji</th>
-                    <th className="px-6 py-4">Catatan</th>
+              <table className="w-full min-w-[1000px] text-left text-sm">
+                <thead className="bg-emerald-700 text-white text-xs uppercase font-semibold">
+<tr>
+<th className="px-4 py-3.5 w-14 text-center whitespace-nowrap">No</th>
+<th className="px-4 py-3.5 whitespace-nowrap">Tanggal & {memberLabel}</th>
+                    <th className="px-4 py-3.5 whitespace-nowrap">Jenis Setoran</th>
+                    <th className="px-4 py-3.5 whitespace-nowrap">Surah & Ayat</th>
+                    <th className="px-4 py-3.5 whitespace-nowrap">Nilai Mutaba&apos;ah</th>
+                    <th className="px-4 py-3.5 whitespace-nowrap">Guru Penguji</th>
+                    <th className="px-4 py-3.5 whitespace-nowrap">Catatan</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 text-slate-700">
-                  {filteredHistories.map((h) => {
+                <tbody className="divide-y divide-slate-200/70 text-slate-700">
+                  {histories.map((h, idx) => {
                     const badgeColor =
                       h.type === 'ziyadah'
-                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                        ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
                         : h.type === 'tasmi'
-                        ? 'bg-purple-50 text-purple-700 border-purple-200'
+                        ? 'bg-slate-200 text-slate-700 border-slate-300'
                         : 'bg-emerald-50 text-emerald-700 border-emerald-200';
 
                     return (
-                      <tr key={h.id} className="hover:bg-slate-50/70 transition-colors">
-                        <td className="px-6 py-4">
-                          <div className="font-bold text-slate-900">{h.santri_name}</div>
+                      <tr key={h.id} className="group">
+<td className="px-4 py-3 text-center font-semibold text-slate-600 whitespace-nowrap bg-slate-100 group-hover:bg-emerald-100/70 transition-colors">
+{(currentPage - 1) * pageSize + idx + 1}
+</td>
+                        <td className="px-4 py-3 whitespace-nowrap bg-white group-hover:bg-emerald-50 transition-colors">
+                          <div className="font-bold text-slate-700">{h.santri_name}</div>
                           <div className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
                             <Calendar size={12} />
                             {new Date(h.date_recorded).toLocaleDateString('id-ID', {
@@ -177,15 +253,15 @@ export default function RekapHafalanPage() {
                             })}
                           </div>
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-4 py-3 whitespace-nowrap bg-slate-50 group-hover:bg-emerald-50 transition-colors">
                           <span
                             className={`inline-block px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wider border ${badgeColor}`}
                           >
                             {h.type}
                           </span>
                         </td>
-                        <td className="px-6 py-4">
-                          <div className="font-bold text-slate-800">
+                        <td className="px-4 py-3 whitespace-nowrap bg-white group-hover:bg-emerald-50 transition-colors">
+                          <div className="font-bold text-slate-700">
                             {h.surah_name}{' '}
                             <span className="text-xs font-normal text-slate-500 font-mono">
                               (Juz {h.juz})
@@ -195,24 +271,27 @@ export default function RekapHafalanPage() {
                             Ayat {h.verse_start} - {h.verse_end}
                           </div>
                         </td>
-                        <td className="px-6 py-4">
-                          <span className="inline-flex items-center gap-1 text-xs font-bold bg-amber-50 text-amber-800 px-2.5 py-0.5 rounded-full border border-amber-200">
+                        <td className="px-4 py-3 whitespace-nowrap bg-slate-50 group-hover:bg-emerald-50 transition-colors">
+                          <span className="inline-flex items-center gap-1 text-xs font-bold bg-emerald-50 text-emerald-800 px-2.5 py-0.5 rounded-full border border-emerald-200">
                             <Award size={12} />
                             {h.grade}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-xs font-medium text-slate-700">
+                        <td className="px-4 py-3 whitespace-nowrap text-xs font-medium text-slate-700 bg-white group-hover:bg-emerald-50 transition-colors">
                           {h.guru_name || 'Ustadz Pembina'}
                         </td>
-                        <td className="px-6 py-4 text-xs text-slate-500 max-w-xs truncate">
+                        <td
+                          title={h.notes || ''}
+                          className="px-4 py-3 whitespace-nowrap text-xs text-slate-500 max-w-xs truncate bg-slate-50 group-hover:bg-emerald-50 transition-colors"
+                        >
                           {h.notes || '-'}
                         </td>
                       </tr>
                     );
                   })}
-                  {filteredHistories.length === 0 && !loading && (
+                  {histories.length === 0 && !loading && (
                     <tr>
-                      <td colSpan={6} className="px-6 py-10 text-center text-slate-400">
+                      <td colSpan={7} className="px-6 py-10 text-center text-slate-400">
                         Belum ada riwayat setoran yang cocok.
                       </td>
                     </tr>
@@ -220,41 +299,41 @@ export default function RekapHafalanPage() {
                 </tbody>
               </table>
             </div>
+
+            {/* Pagination Component */}
+            <Pagination
+              currentPage={currentPage}
+              totalItems={pagination?.total || 0}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+            />
           </div>
         </main>
-      </div>
 
-      {/* Modal Input Setoran */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-base font-bold text-slate-900">Input Setoran Hafalan Santri</h3>
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 text-lg leading-none"
-              >
-                ✕
-              </button>
-            </div>
-
+      <Dialog
+        open={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        title={`Input Setoran Hafalan ${memberLabel}`}
+        description="Catat setoran ziyadah, tasmi, atau murojaah beserta tanggal dan rentang ayat."
+        size="lg"
+      >
             {errorMsg && (
-              <div className="p-3 bg-rose-50 text-rose-700 rounded-xl text-xs flex items-center gap-2">
+              <div role="alert" className="p-3 bg-rose-50 text-rose-700 rounded-xl text-xs flex items-center gap-2 mb-4">
                 <AlertCircle size={16} />
                 <span>{errorMsg}</span>
               </div>
             )}
 
-            <form onSubmit={handleRecord} className="space-y-4">
+            <form onSubmit={handleRecord} noValidate className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                  Pilih Santri
+                  Pilih {memberLabel}
                 </label>
                 <select
                   required
                   value={selectedSantriId}
                   onChange={(e) => setSelectedSantriId(e.target.value)}
-                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500 bg-white"
+                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500 bg-white"
                 >
                   {santris.map((s) => (
                     <option key={s.id} value={s.id}>
@@ -272,7 +351,7 @@ export default function RekapHafalanPage() {
                   <select
                     value={type}
                     onChange={(e) => setType(e.target.value)}
-                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500 bg-white"
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500 bg-white"
                   >
                     <option value="ziyadah">Ziyadah (Hafalan Baru)</option>
                     <option value="tasmi">Tasmi&apos; (Ujian Juz)</option>
@@ -290,36 +369,49 @@ export default function RekapHafalanPage() {
                     required
                     value={juz}
                     onChange={(e) => setJuz(Number(e.target.value))}
-                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500"
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-1">
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                    No. Surah
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label htmlFor="rekap-surah" className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Surah
                   </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="114"
+                  <select
+                    id="rekap-surah"
                     required
                     value={surahNumber}
-                    onChange={(e) => setSurahNumber(Number(e.target.value))}
-                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500"
-                  />
+                    onChange={(e) => {
+                      const nextNumber = Number(e.target.value);
+                      const nextSurah = QURAN_SURAHS.find((surah) => surah.number === nextNumber);
+                      setSurahNumber(nextNumber);
+                      setJuz(nextSurah?.juz || juz);
+                      setVerseStart(1);
+                      setVerseEnd(Math.min(10, nextSurah?.numberOfAyahs || 10));
+                    }}
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500 bg-white"
+                  >
+                    {QURAN_SURAHS.map((surah) => (
+                      <option key={surah.number} value={surah.number}>
+                        {surah.number}. {surah.name} ({surah.numberOfAyahs} ayat, Juz {surah.juz})
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                <div className="col-span-2">
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                    Nama Surah
+                <div>
+                  <label htmlFor="rekap-date" className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Tanggal Setoran
                   </label>
                   <input
-                    type="text"
+                    id="rekap-date"
+                    type="date"
                     required
-                    value={surahName}
-                    onChange={(e) => setSurahName(e.target.value)}
-                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500"
+                    max={today}
+                    value={dateRecorded}
+                    onChange={(e) => setDateRecorded(e.target.value)}
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                   />
                 </div>
               </div>
@@ -332,10 +424,11 @@ export default function RekapHafalanPage() {
                   <input
                     type="number"
                     min="1"
+                    max={selectedSurah?.numberOfAyahs || 6236}
                     required
                     value={verseStart}
                     onChange={(e) => setVerseStart(Number(e.target.value))}
-                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500"
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                   />
                 </div>
                 <div>
@@ -345,10 +438,11 @@ export default function RekapHafalanPage() {
                   <input
                     type="number"
                     min="1"
+                    max={selectedSurah?.numberOfAyahs || 6236}
                     required
                     value={verseEnd}
                     onChange={(e) => setVerseEnd(Number(e.target.value))}
-                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500"
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                   />
                 </div>
                 <div>
@@ -358,7 +452,7 @@ export default function RekapHafalanPage() {
                   <select
                     value={grade}
                     onChange={(e) => setGrade(e.target.value)}
-                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500 bg-white"
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500 bg-white"
                   >
                     <option value="Mumtaz">Mumtaz (Sempurna)</option>
                     <option value="Jayyid Jiddan">Jayyid Jiddan (Amat Baik)</option>
@@ -377,7 +471,7 @@ export default function RekapHafalanPage() {
                   placeholder="Catatan makhraj, panjang mad, atau kelancaran..."
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2 text-sm focus:outline-hidden focus:border-emerald-500"
+                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                 />
               </div>
 
@@ -398,9 +492,7 @@ export default function RekapHafalanPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-    </div>
+      </Dialog>
+    </AppShell>
   );
 }

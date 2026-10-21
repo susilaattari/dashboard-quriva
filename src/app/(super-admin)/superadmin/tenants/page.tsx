@@ -1,19 +1,25 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import Sidebar from '@/components/layouts/Sidebar';
-import Navbar from '@/components/layouts/Navbar';
+import { useRouter } from 'next/navigation';
+import AppShell from '@/components/layouts/AppShell';
 import api from '@/services/api';
+import { useAuthStore } from '@/store/useAuthStore';
+import { BRAND, getTenantHost } from '@/config/brand';
+import { safeString } from '@/lib/format';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
+import ErrorState from '@/components/ui/ErrorState';
+import QuotaRequestTable from '@/components/superadmin/QuotaRequestTable';
+import TenantDirectoryTable from '@/components/superadmin/TenantDirectoryTable';
+import TenantFilterTabs from '@/components/superadmin/TenantFilterTabs';
+import { usePaginatedList } from '@/hooks/usePaginatedList';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import {
   Building2,
   Plus,
   Search,
   CheckCircle2,
-  XCircle,
   MoreVertical,
-  ExternalLink,
-  Shield,
-  Palette,
   AlertCircle,
   Clock,
   MessageCircle,
@@ -21,16 +27,51 @@ import {
   X,
   CreditCard,
   UserCheck,
-  Calendar,
   Phone,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
+import Pagination from '@/components/ui/Pagination';
 
 export default function SuperAdminTenants() {
-  const [tenants, setTenants] = useState<any[]>([]);
+  const router = useRouter();
+  const { impersonateTenant } = useAuthStore();
+  const [impersonatingId, setImpersonatingId] = useState<number | null>(null);
   const [packages, setPackages] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [supportLoading, setSupportLoading] = useState(true);
+  const [supportError, setSupportError] = useState('');
   const [search, setSearch] = useState('');
-  const [activeTab, setActiveTab] = useState<'all' | 'pending_approval' | 'active' | 'suspended'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'pending_approval' | 'quota_requests' | 'active' | 'suspended'>('all');
+  const [quotaRequests, setQuotaRequests] = useState<any[]>([]);
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
+  const debouncedSearch = useDebouncedValue(search);
+  const statusParam =
+    activeTab === 'pending_approval' || activeTab === 'active' || activeTab === 'suspended'
+      ? activeTab
+      : undefined;
+  const {
+    items: tenants,
+    pagination,
+    counts,
+    error: listError,
+    isLoading: listLoading,
+    mutate: mutateTenants,
+  } = usePaginatedList<any>('/tenants', {
+    page: currentPage,
+    per_page: pageSize,
+    search: debouncedSearch,
+    status: statusParam,
+  });
+  const loading = supportLoading || listLoading;
+  const error = supportError || (listError ? 'Gagal memuat data tenant. Periksa koneksi Anda lalu coba lagi.' : '');
+  const totalTenants = counts?.total ?? pagination?.total ?? tenants.length;
+  const pendingCount = counts?.pending ?? tenants.filter((tenant) => tenant.status === 'pending_approval').length;
+  const activeCount = counts?.active ?? tenants.filter((tenant) => tenant.status === 'active').length;
+  const suspendedCount =
+    counts?.suspended ?? tenants.filter((tenant) => tenant.status === 'suspended' || tenant.status === 'rejected').length;
 
   // Modal Create State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -41,6 +82,7 @@ export default function SuperAdminTenants() {
   const [formAdminEmail, setFormAdminEmail] = useState('');
   const [formAdminPhone, setFormAdminPhone] = useState('');
   const [formAdminPassword, setFormAdminPassword] = useState('');
+  const [showFormAdminPassword, setShowFormAdminPassword] = useState(false);
   const [formInstitutionType, setFormInstitutionType] = useState<'pesantren' | 'non_pesantren'>('pesantren');
   const [submitting, setSubmitting] = useState(false);
   const [modalError, setModalError] = useState('');
@@ -51,29 +93,42 @@ export default function SuperAdminTenants() {
   const [approvalMonths, setApprovalMonths] = useState(1);
   const [rejectReason, setRejectReason] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const [statusConfirm, setStatusConfirm] = useState<{ tenantId: number; tenantName: string; newStatus: 'active' | 'suspended' } | null>(null);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
+  const fetchSupportData = async () => {
     try {
-      setLoading(true);
-      const [tenantsRes, packagesRes] = await Promise.all([
-        api.get('/tenants'),
+      setSupportLoading(true);
+      setSupportError('');
+      const [packagesRes, quotaRes] = await Promise.all([
         api.get('/packages'),
+        api.get('/quota-requests'),
       ]);
-      setTenants(tenantsRes.data?.data || []);
       setPackages(packagesRes.data?.data || []);
+      setQuotaRequests(quotaRes.data?.data || []);
       if (packagesRes.data?.data?.length > 0) {
         setFormPlanId(packagesRes.data.data[0].id);
       }
     } catch (err) {
-      console.error('Failed to load tenants:', err);
+      console.error('Failed to load tenant support data:', err);
+      setSupportError('Gagal memuat data pendukung tenant. Periksa koneksi Anda lalu coba lagi.');
     } finally {
-      setLoading(false);
+      setSupportLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchSupportData();
+  }, []);
+
+  const fetchData = async () => {
+    await Promise.all([fetchSupportData(), mutateTenants()]);
+  };
+
+  useEffect(() => {
+    if (pagination && pagination.total_pages < currentPage) {
+      setCurrentPage(pagination.total_pages);
+    }
+  }, [pagination, currentPage]);
 
   const handleCreateTenant = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -131,8 +186,12 @@ export default function SuperAdminTenants() {
   };
 
   const handleReject = async (tenantId: number) => {
-    const reason = prompt('Masukkan alasan penolakan pendaftaran (opsional):', 'Bukti transfer tidak valid atau belum diterima.');
+    const reason = prompt('Masukkan alasan penolakan pendaftaran (wajib diisi):', '');
     if (reason === null) return;
+    if (!reason.trim()) {
+      alert('Alasan penolakan wajib diisi.');
+      return;
+    }
 
     try {
       setActionLoading(true);
@@ -147,13 +206,22 @@ export default function SuperAdminTenants() {
     }
   };
 
-  const handleToggleStatus = async (tenantId: number, currentStatus: string) => {
+  const handleToggleStatus = (tenantId: number, currentStatus: string, tenantName: string) => {
     const newStatus = currentStatus === 'active' ? 'suspended' : 'active';
+    setStatusConfirm({ tenantId, tenantName, newStatus });
+  };
+
+  const performToggleStatus = async () => {
+    if (!statusConfirm) return;
     try {
-      await api.put(`/tenants/${tenantId}`, { status: newStatus });
+      setActionLoading(true);
+      await api.put(`/tenants/${statusConfirm.tenantId}`, { status: statusConfirm.newStatus });
+      setStatusConfirm(null);
       fetchData();
     } catch (err) {
       alert('Gagal mengubah status tenant');
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -167,23 +235,120 @@ export default function SuperAdminTenants() {
     }
   };
 
-  const pendingCount = tenants.filter((t) => t.status === 'pending_approval').length;
-  const activeCount = tenants.filter((t) => t.status === 'active').length;
-  const suspendedCount = tenants.filter((t) => t.status === 'suspended' || t.status === 'rejected').length;
+  const handleImpersonate = async (tenant: any) => {
+    if (!confirm(`Apakah Anda yakin ingin masuk ke dashboard sebagai Administrator "${tenant.name}"?`)) {
+      return;
+    }
 
-  const filteredTenants = tenants.filter((t) => {
+    try {
+      setImpersonatingId(tenant.id);
+      await impersonateTenant(tenant.id);
+      router.push('/dashboard');
+    } catch (err: any) {
+      console.error('Impersonation error:', err);
+      alert(err.message || 'Gagal melakukan impersonasi institusi.');
+      setImpersonatingId(null);
+    }
+  };
+
+  // Tambah kuota santri / peserta (tenant yang sedang berlangganan)
+  const [quotaTenant, setQuotaTenant] = useState<any>(null);
+  const [quotaAdd, setQuotaAdd] = useState<number | ''>(10);
+  const [quotaLoading, setQuotaLoading] = useState(false);
+  const [quotaError, setQuotaError] = useState('');
+  const [quotaResult, setQuotaResult] = useState<any>(null);
+
+  const getTenantQuota = (t: any) => Number(t?.santri_quota || t?.plan_max_santri || 10);
+
+  const calcPeriodPrice = (t: any, quota: number) => {
+    const basePrice = Number(t?.plan_price || 0);
+    const baseCapacity = Number(t?.plan_max_santri || 10);
+    const extraPrice = Number(t?.plan_extra_price_per_user || 0);
+    const features = t?.plan_features || {};
+    if (features.pricing_type === 'per_user') return quota * basePrice;
+    return basePrice + Math.max(0, quota - baseCapacity) * extraPrice;
+  };
+
+  const quotaExtraPrice = quotaTenant
+    ? Math.max(
+        0,
+        calcPeriodPrice(quotaTenant, getTenantQuota(quotaTenant) + (Number(quotaAdd) || 0)) -
+          calcPeriodPrice(quotaTenant, getTenantQuota(quotaTenant))
+      )
+    : 0;
+
+  const openQuotaModal = (tenant: any) => {
+    setQuotaTenant(tenant);
+    setQuotaAdd(10);
+    setQuotaError('');
+    setQuotaResult(null);
+  };
+
+  const closeQuotaModal = () => {
+    setQuotaTenant(null);
+    setQuotaResult(null);
+    setQuotaError('');
+  };
+
+  const handleAddQuota = async () => {
+    if (!quotaTenant) return;
+    const add = Number(quotaAdd);
+    if (!add || add < 1) {
+      setQuotaError('Masukkan jumlah tambahan minimal 1.');
+      return;
+    }
+    try {
+      setQuotaLoading(true);
+      setQuotaError('');
+      const res = await api.put(`/tenants/${quotaTenant.id}/quota`, { add_santri: add });
+      setQuotaResult(res.data?.data);
+      fetchData();
+    } catch (err: any) {
+      setQuotaError(err.response?.data?.message || err.message || 'Gagal menambah kuota.');
+    } finally {
+      setQuotaLoading(false);
+    }
+  };
+
+  const handleApproveQuotaRequest = async (id: number) => {
+    if (!confirm('Setujui permintaan tambah kuota santri ini? Kuota tenant akan langsung bertambah.')) return;
+    try {
+      setActionLoading(true);
+      await api.put(`/quota-requests/${id}/approve`);
+      fetchData();
+    } catch (err: any) {
+      alert(err.response?.data?.message || err.message || 'Gagal menyetujui permintaan kuota.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRejectQuotaRequest = async (id: number) => {
+    const reason = prompt('Masukkan alasan penolakan (wajib diisi):', '');
+    if (reason === null) return;
+    if (!reason.trim()) {
+      alert('Alasan penolakan wajib diisi.');
+      return;
+    }
+    try {
+      setActionLoading(true);
+      await api.put(`/quota-requests/${id}/reject`, { reason });
+      fetchData();
+    } catch (err: any) {
+      alert(err.response?.data?.message || err.message || 'Gagal menolak permintaan kuota.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const pendingQuotaCount = quotaRequests.filter((r) => r.status === 'pending').length;
+  const filteredQuotaRequests = quotaRequests.filter((r) => {
+    const q = search.toLowerCase();
     const matchSearch =
-      t.name.toLowerCase().includes(search.toLowerCase()) ||
-      t.subdomain.toLowerCase().includes(search.toLowerCase()) ||
-      (t.admin_name && t.admin_name.toLowerCase().includes(search.toLowerCase())) ||
-      (t.phone && t.phone.toLowerCase().includes(search.toLowerCase()));
-
-    if (!matchSearch) return false;
-
-    if (activeTab === 'pending_approval') return t.status === 'pending_approval';
-    if (activeTab === 'active') return t.status === 'active';
-    if (activeTab === 'suspended') return t.status === 'suspended' || t.status === 'rejected';
-    return true;
+      safeString(r.tenant_name).toLowerCase().includes(q) ||
+      safeString(r.tenant_subdomain).toLowerCase().includes(q) ||
+      safeString(r.note).toLowerCase().includes(q);
+    return matchSearch;
   });
 
   const formatExpiryDate = (iso?: string) => {
@@ -204,74 +369,35 @@ export default function SuperAdminTenants() {
   };
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
-      <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0">
-        <Navbar
+    <AppShell
           title="Manajemen Tenant & Mitra"
           subtitle="Persetujuan pendaftaran mandiri, aktivasi langganan, dan kelola seluruh institusi"
-        />
+        >
 
-        <main className="p-8 space-y-6 flex-1">
+        <main className="p-4 sm:p-6 lg:p-8 space-y-6 flex-1">
+          {error && (
+            <ErrorState
+              title="Gagal memuat data tenant"
+              description={error}
+              onRetry={fetchData}
+              className="rounded-2xl border border-slate-200 bg-white"
+            />
+          )}
+
           {/* Quick Stats / Filter Tabs */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <button
-              onClick={() => setActiveTab('all')}
-              className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
-                activeTab === 'all'
-                  ? 'bg-slate-900 text-white border-slate-900 shadow-md'
-                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              <div className="text-xs uppercase font-bold opacity-70">Semua Lembaga</div>
-              <div className="text-2xl font-black mt-1">{tenants.length}</div>
-            </button>
+          <TenantFilterTabs
+            activeTab={activeTab}
+            totalCount={totalTenants}
+            pendingCount={pendingCount}
+            quotaCount={pendingQuotaCount}
+            activeCount={activeCount}
+            suspendedCount={suspendedCount}
+            onChange={(tab) => {
+              setActiveTab(tab);
+              setCurrentPage(1);
+            }}
+          />
 
-            <button
-              onClick={() => setActiveTab('pending_approval')}
-              className={`p-4 rounded-2xl border text-left transition-all relative cursor-pointer ${
-                activeTab === 'pending_approval'
-                  ? 'bg-amber-600 text-white border-amber-600 shadow-md ring-2 ring-amber-400/30'
-                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs uppercase font-bold opacity-80">Menunggu Persetujuan</span>
-                {pendingCount > 0 && (
-                  <span className="px-2 py-0.5 rounded-full text-[11px] font-black bg-amber-400 text-slate-950 animate-pulse">
-                    {pendingCount} Baru
-                  </span>
-                )}
-              </div>
-              <div className="text-2xl font-black mt-1 text-amber-500 group-hover:text-amber-600">
-                {pendingCount}
-              </div>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('active')}
-              className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
-                activeTab === 'active'
-                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-md'
-                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              <div className="text-xs uppercase font-bold opacity-70">Aktif Berlangganan</div>
-              <div className="text-2xl font-black mt-1">{activeCount}</div>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('suspended')}
-              className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
-                activeTab === 'suspended'
-                  ? 'bg-rose-600 text-white border-rose-600 shadow-md'
-                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              <div className="text-xs uppercase font-bold opacity-70">Ditangguhkan / Ditolak</div>
-              <div className="text-2xl font-black mt-1">{suspendedCount}</div>
-            </button>
-          </div>
 
           {/* Top action bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -281,14 +407,17 @@ export default function SuperAdminTenants() {
                 type="text"
                 placeholder="Cari nama institusi, subdomain, atau nama admin..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 shadow-xs"
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 shadow-sm"
               />
             </div>
 
             <button
               onClick={() => setIsModalOpen(true)}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl shadow-md shadow-emerald-600/20 transition-all cursor-pointer whitespace-nowrap shrink-0"
             >
               <Plus size={18} />
               <span>Daftarkan Tenant Manual</span>
@@ -296,225 +425,188 @@ export default function SuperAdminTenants() {
           </div>
 
           {/* Tenants Table */}
-          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-semibold border-b border-slate-100">
-                  <tr>
-                    <th className="px-6 py-4">Institusi Mitra</th>
-                    <th className="px-6 py-4">Subdomain Akses</th>
-                    <th className="px-6 py-4">Paket & Kontak</th>
-                    <th className="px-6 py-4 text-center">Santri / Kuota</th>
-                    <th className="px-6 py-4">Jatuh Tempo</th>
-                    <th className="px-6 py-4">Status & Pembayaran</th>
-                    <th className="px-6 py-4 text-right">Aksi Super Admin</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-slate-700">
-                  {filteredTenants.map((tenant) => {
-                    const isPending = tenant.status === 'pending_approval';
-                    const isRejected = tenant.status === 'rejected';
+              {activeTab === 'quota_requests' ? (
+                <QuotaRequestTable
+                  items={filteredQuotaRequests}
+                  currentPage={currentPage}
+                  pageSize={pageSize}
+                  onApprove={handleApproveQuotaRequest}
+                  onReject={handleRejectQuotaRequest}
+                />
+              ) : (
+              <>
+              <TenantDirectoryTable
+                tenants={tenants}
+                currentPage={currentPage}
+                pageSize={pageSize}
+                loading={loading}
+                search={search}
+                impersonatingId={impersonatingId}
+                onImpersonate={handleImpersonate}
+                onOpenDetail={(tenant) => {
+                  setSelectedTenant(tenant);
+                  setApprovalMonths(tenant.duration_months || 1);
+                  setIsDetailModalOpen(true);
+                }}
+                onReject={handleReject}
+                onExtend={handleExtendSubscription}
+                onQuota={openQuotaModal}
+                onToggleStatus={handleToggleStatus}
+              />
 
-                    return (
-                      <tr key={tenant.id} className="hover:bg-slate-50/70 transition-colors">
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            <div
-                              className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-base shadow-xs shrink-0 ${
-                                isPending
-                                  ? 'bg-amber-100 text-amber-800'
-                                  : isRejected
-                                  ? 'bg-rose-100 text-rose-700'
-                                  : 'bg-emerald-50 text-emerald-700'
-                              }`}
-                            >
-                              {tenant.name.charAt(0)}
-                            </div>
-                            <div>
-                              <div className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
-                                <span>{tenant.name}</span>
-                                {tenant.institution_type === 'non_pesantren' || tenant.has_wali === false ? (
-                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-100 text-cyan-800">
-                                    👥 Non-Pesantren (Mandiri)
-                                  </span>
-                                ) : (
-                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                                    🏛️ Pesantren (Wali)
-                                  </span>
-                                )}
-                                {isPending && (
-                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
-                                    Pendaftar Baru
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-xs text-slate-400">
-                                ID: #{tenant.id} • PIC: {tenant.admin_name || 'Admin'}
-                                {tenant.admin_phone && ` (${tenant.admin_phone})`}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-
-                        <td className="px-6 py-4">
-                          <span className="font-mono text-xs bg-slate-100 text-slate-700 px-2.5 py-1 rounded-md font-semibold">
-                            {tenant.subdomain}.tahfidzapp.com
-                          </span>
-                        </td>
-
-                        <td className="px-6 py-4">
-                          <div className="space-y-1">
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-purple-50 text-purple-700 uppercase">
-                              {tenant.plan_name || 'Standar'}
-                            </span>
-                            {tenant.admin_phone && (
-                              <a
-                                href={`https://wa.me/${tenant.admin_phone.replace(/[^0-9]/g, '')}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex items-center gap-1 text-[11px] text-emerald-600 hover:text-emerald-700 font-medium"
-                              >
-                                <MessageCircle size={12} />
-                                <span>Chat WA Pendaftar</span>
-                              </a>
-                            )}
-                          </div>
-                        </td>
-
-                        <td className="px-6 py-4 text-center">
-                          <span className="font-bold text-slate-900">
-                            {tenant.stats?.total_santri || 0}
-                          </span>{' '}
-                          <span className="text-xs text-slate-400">/ {tenant.plan_max_santri || 100}</span>
-                        </td>
-
-                        <td className="px-6 py-4">
-                          <div className="text-xs font-semibold text-slate-800">
-                            {isPending ? 'Menunggu Aktivasi' : formatExpiryDate(tenant.subscription_expires_at)}
-                          </div>
-                          <div className="text-[11px] mt-0.5">
-                            {isPending ? (
-                              <span className="text-amber-600 font-semibold">⏳ Belum aktif</span>
-                            ) : tenant.is_expired || tenant.status === 'suspended' ? (
-                              <span className="text-rose-600 font-bold">⛔ Telah Berakhir</span>
-                            ) : tenant.days_remaining !== null && tenant.days_remaining <= 7 ? (
-                              <span className="text-amber-600 font-bold animate-pulse">
-                                ⚠️ {tenant.days_remaining} hari lagi
-                              </span>
-                            ) : tenant.days_remaining !== null ? (
-                              <span className="text-emerald-600 font-medium">
-                                {tenant.days_remaining} hari lagi
-                              </span>
-                            ) : (
-                              <span className="text-slate-400">Aktif</span>
-                            )}
-                          </div>
-                        </td>
-
-                        <td className="px-6 py-4">
-                          {isPending ? (
-                            <div className="space-y-1">
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                                <Clock size={12} />
-                                Menunggu Approval
-                              </span>
-                              <div className="text-[11px] text-slate-500">
-                                Transfer: <span className="font-semibold text-slate-700">Manual WA</span>
-                              </div>
-                            </div>
-                          ) : isRejected ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-700">
-                              <XCircle size={12} />
-                              Ditolak
-                            </span>
-                          ) : tenant.status === 'active' ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700">
-                              <CheckCircle2 size={12} />
-                              Aktif
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-700">
-                              <XCircle size={12} />
-                              Ditangguhkan
-                            </span>
-                          )}
-                        </td>
-
-                        <td className="px-6 py-4 text-right">
-                          {isPending ? (
-                            <div className="flex items-center justify-end gap-1.5">
-                              <button
-                                onClick={() => {
-                                  setSelectedTenant(tenant);
-                                  setApprovalMonths(tenant.duration_months || 1);
-                                  setIsDetailModalOpen(true);
-                                }}
-                                className="text-xs font-bold px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 shadow-xs transition-colors flex items-center gap-1 cursor-pointer"
-                              >
-                                <Check size={14} />
-                                <span>Verifikasi & Setujui</span>
-                              </button>
-                              <button
-                                onClick={() => handleReject(tenant.id)}
-                                className="text-xs font-bold px-2.5 py-1.5 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                                title="Tolak Pendaftaran"
-                              >
-                                <X size={14} />
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center justify-end gap-1.5">
-                              <button
-                                onClick={() => handleExtendSubscription(tenant.id, 1)}
-                                className="text-xs font-bold px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors cursor-pointer"
-                                title="Perpanjang langganan +1 Bulan"
-                              >
-                                +1 Bln
-                              </button>
-                              <button
-                                onClick={() => handleExtendSubscription(tenant.id, 12)}
-                                className="text-xs font-bold px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-colors cursor-pointer"
-                                title="Perpanjang langganan +1 Tahun"
-                              >
-                                +1 Thn
-                              </button>
-                              <button
-                                onClick={() => handleToggleStatus(tenant.id, tenant.status)}
-                                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                                  tenant.status === 'active'
-                                    ? 'text-rose-600 hover:bg-rose-50'
-                                    : 'text-emerald-600 hover:bg-emerald-50'
-                                }`}
-                                title={tenant.status === 'active' ? 'Suspend Tenant' : 'Aktifkan Tenant'}
-                              >
-                                {tenant.status === 'active' ? <XCircle size={18} /> : <CheckCircle2 size={18} />}
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-
-              {filteredTenants.length === 0 && !loading && (
-                <div className="p-12 text-center">
-                  <Shield size={48} className="mx-auto text-slate-300 mb-3" />
-                  <h4 className="text-base font-bold text-slate-700">Tidak ada tenant ditemukan</h4>
-                  <p className="text-xs text-slate-400 mt-1">
-                    {search ? 'Coba ubah kata kunci pencarian Anda' : 'Belum ada data tenant pada kategori ini.'}
-                  </p>
-                </div>
-              )}
+              </>
+            )}
             </div>
+
+            {/* Pagination Component */}
+            <Pagination
+              currentPage={currentPage}
+              totalItems={activeTab === 'quota_requests' ? filteredQuotaRequests.length : pagination?.total || 0}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+            />
           </div>
         </main>
-      </div>
+
+      {/* Modal Tambah Kuota Santri / Peserta */}
+      {quotaTenant && (
+        <div className="fixed inset-0 z-50 bg-slate-600/30 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200 space-y-5">
+            <div className="flex items-start justify-between border-b border-slate-200 pb-4 gap-3">
+              <div>
+                <h3 className="text-lg font-bold text-slate-700">
+                  Tambah Kuota {quotaTenant.member_label || 'Santri'}
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">{quotaTenant.name}</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeQuotaModal}
+                aria-label="Tutup dialog kuota"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {quotaResult ? (
+              <div className="space-y-4">
+                <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 space-y-1">
+                  <div className="flex items-center gap-2 text-emerald-800 font-semibold text-sm">
+                    <CheckCircle2 size={16} />
+                    <span>{quotaResult.message}</span>
+                  </div>
+                  <div className="text-xs text-emerald-700">
+                    Tagihan tambahan per periode langganan:{' '}
+                    <span className="font-bold">{formatCurrency(quotaResult.additional_price || 0)}</span>
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    Total tagihan paket sekarang: {formatCurrency(quotaResult.new_total_price || 0)}
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    onClick={closeQuotaModal}
+                    className="h-9 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors cursor-pointer"
+                  >
+                    Selesai
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {quotaError && (
+                  <div className="p-3 bg-rose-50 text-rose-700 rounded-xl text-xs flex items-center gap-2">
+                    <AlertCircle size={16} className="shrink-0" />
+                    <span>{quotaError}</span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="p-3 rounded-xl bg-slate-100">
+                    <div className="text-[11px] text-slate-500">Terpakai</div>
+                    <div className="text-lg font-bold text-slate-700">{quotaTenant.stats?.total_santri || 0}</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-100">
+                    <div className="text-[11px] text-slate-500">Kuota Saat Ini</div>
+                    <div className="text-lg font-bold text-slate-700">{getTenantQuota(quotaTenant)}</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200">
+                    <div className="text-[11px] text-emerald-700">Kuota Baru</div>
+                    <div className="text-lg font-bold text-emerald-700">
+                      {getTenantQuota(quotaTenant) + (Number(quotaAdd) || 0)}
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 uppercase mb-1.5">
+                    Jumlah {quotaTenant.member_label || 'Santri'} Tambahan
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={quotaAdd}
+                    onChange={(e) => setQuotaAdd(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))}
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+                  />
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {[5, 10, 25, 50].map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => setQuotaAdd(n)}
+                        className={`h-7 px-3 text-xs font-semibold rounded-full border transition-colors cursor-pointer ${
+                          Number(quotaAdd) === n
+                            ? 'bg-emerald-600 border-emerald-600 text-white'
+                            : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        +{n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1">
+                  <div className="flex justify-between text-slate-500">
+                    <span>Paket</span>
+                    <span className="font-semibold text-slate-700 uppercase">{quotaTenant.plan_name || 'Standar'}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-500">
+                    <span>Estimasi tagihan tambahan / periode</span>
+                    <span className="font-bold text-emerald-700">{formatCurrency(quotaExtraPrice)}</span>
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={closeQuotaModal}
+                    className="h-9 px-4 text-xs font-semibold rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAddQuota}
+                    disabled={quotaLoading || !Number(quotaAdd)}
+                    className="h-9 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {quotaLoading ? 'Menyimpan...' : 'Tambah Kuota'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Modal Detail / Verifikasi Pendaftaran */}
       {isDetailModalOpen && selectedTenant && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-5">
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div>
@@ -524,8 +616,10 @@ export default function SuperAdminTenants() {
                 </p>
               </div>
               <button
+                type="button"
                 onClick={() => setIsDetailModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                aria-label="Tutup detail tenant"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
               >
                 <X size={20} />
               </button>
@@ -541,13 +635,13 @@ export default function SuperAdminTenants() {
                   <span className="text-slate-400">Model Lembaga:</span>
                   <span className="font-bold text-slate-800">
                     {selectedTenant.institution_type === 'non_pesantren' || selectedTenant.has_wali === false
-                      ? '👥 Non-Pesantren (Mandiri / Tanpa Wali)'
-                      : '🏛️ Pesantren / Sekolah (Dengan Wali Santri)'}
+                  ? 'Non-Pesantren (Mandiri / Tanpa Wali)'
+                  : 'Pesantren / Sekolah (Dengan Wali Santri)'}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">Subdomain:</span>
-                  <span className="font-mono font-bold text-emerald-700">{selectedTenant.subdomain}.tahfidzapp.com</span>
+                  <span className="font-mono font-bold text-emerald-700">{getTenantHost(selectedTenant.subdomain)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">Paket Dipilih:</span>
@@ -616,7 +710,7 @@ export default function SuperAdminTenants() {
                 <select
                   value={approvalMonths}
                   onChange={(e) => setApprovalMonths(Number(e.target.value))}
-                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500 font-semibold text-slate-800"
+                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500 font-semibold text-slate-800"
                 >
                   <option value={1}>1 Bulan (Uji Coba / Standar Bulanan)</option>
                   <option value={3}>3 Bulan (Paket Kuartal)</option>
@@ -651,7 +745,7 @@ export default function SuperAdminTenants() {
 
       {/* Modal Tambah Tenant Manual Super Admin */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 my-8 space-y-5">
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div>
@@ -661,8 +755,10 @@ export default function SuperAdminTenants() {
                 </p>
               </div>
               <button
+                type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                aria-label="Tutup dialog tambah tenant"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
               >
                 <X size={20} />
               </button>
@@ -690,7 +786,7 @@ export default function SuperAdminTenants() {
                         : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                     }`}
                   >
-                    🏛️ Pesantren (Wali Aktif)
+                    Pesantren (Wali Aktif)
                   </button>
                   <button
                     type="button"
@@ -701,7 +797,7 @@ export default function SuperAdminTenants() {
                         : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                     }`}
                   >
-                    👥 Non-Pesantren (Mandiri)
+                    Non-Pesantren (Mandiri)
                   </button>
                 </div>
               </div>
@@ -720,7 +816,7 @@ export default function SuperAdminTenants() {
                   }
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
-                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500"
+                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                 />
               </div>
 
@@ -735,10 +831,10 @@ export default function SuperAdminTenants() {
                     placeholder="alhikmah"
                     value={formSubdomain}
                     onChange={(e) => setFormSubdomain(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                    className="flex-1 border border-r-0 border-slate-300 rounded-l-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500 font-mono"
+                    className="flex-1 border border-r-0 border-slate-300 rounded-l-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500 font-mono"
                   />
                   <span className="bg-slate-100 border border-slate-300 rounded-r-xl px-3.5 py-2.5 text-xs text-slate-500 font-mono">
-                    .tahfidzapp.com
+                    .{BRAND.rootDomain}
                   </span>
                 </div>
               </div>
@@ -750,7 +846,7 @@ export default function SuperAdminTenants() {
                 <select
                   value={formPlanId}
                   onChange={(e) => setFormPlanId(Number(e.target.value))}
-                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500 font-medium"
+                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500 font-medium"
                 >
                   {packages.map((pkg) => (
                     <option key={pkg.id} value={pkg.id}>
@@ -776,7 +872,7 @@ export default function SuperAdminTenants() {
                       placeholder="Ustadz Ahmad Fauzi"
                       value={formAdminName}
                       onChange={(e) => setFormAdminName(e.target.value)}
-                      className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-hidden focus:border-emerald-500"
+                      className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                     />
                   </div>
 
@@ -791,7 +887,7 @@ export default function SuperAdminTenants() {
                         placeholder="admin@pesantren.sch.id"
                         value={formAdminEmail}
                         onChange={(e) => setFormAdminEmail(e.target.value)}
-                        className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-hidden focus:border-emerald-500"
+                        className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                       />
                     </div>
                     <div>
@@ -803,7 +899,7 @@ export default function SuperAdminTenants() {
                         placeholder="081234567890"
                         value={formAdminPhone}
                         onChange={(e) => setFormAdminPhone(e.target.value)}
-                        className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-hidden focus:border-emerald-500"
+                        className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                       />
                     </div>
                   </div>
@@ -812,14 +908,26 @@ export default function SuperAdminTenants() {
                     <label className="block text-[11px] font-semibold text-slate-600 mb-1">
                       Kata Sandi Awal
                     </label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="Minimal 6 karakter"
-                      value={formAdminPassword}
-                      onChange={(e) => setFormAdminPassword(e.target.value)}
-                      className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-hidden focus:border-emerald-500"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showFormAdminPassword ? 'text' : 'password'}
+                        required
+                        autoComplete="new-password"
+                        minLength={6}
+                        placeholder="Minimal 6 karakter"
+                        value={formAdminPassword}
+                        onChange={(e) => setFormAdminPassword(e.target.value)}
+                        className="w-full border border-slate-300 rounded-xl px-3 py-2 pr-12 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowFormAdminPassword((prev) => !prev)}
+                        aria-label={showFormAdminPassword ? 'Sembunyikan kata sandi' : 'Tampilkan kata sandi'}
+                        className="absolute inset-y-0 right-0 inline-flex w-11 items-center justify-center text-slate-500 hover:text-slate-800"
+                      >
+                        {showFormAdminPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -844,6 +952,23 @@ export default function SuperAdminTenants() {
           </div>
         </div>
       )}
-    </div>
+
+      <ConfirmDialog
+        open={Boolean(statusConfirm)}
+        onClose={() => {
+          if (!actionLoading) setStatusConfirm(null);
+        }}
+        onConfirm={performToggleStatus}
+        title={statusConfirm?.newStatus === 'suspended' ? 'Suspend tenant?' : 'Aktifkan tenant?'}
+        description={
+          statusConfirm?.newStatus === 'suspended'
+            ? `Seluruh admin dan pengguna "${statusConfirm?.tenantName}" akan kehilangan akses sampai tenant diaktifkan kembali.`
+            : `Aktifkan kembali akses tenant "${statusConfirm?.tenantName}"?`
+        }
+        confirmLabel={statusConfirm?.newStatus === 'suspended' ? 'Ya, suspend tenant' : 'Ya, aktifkan'}
+        variant={statusConfirm?.newStatus === 'suspended' ? 'danger' : 'primary'}
+        loading={actionLoading}
+      />
+    </AppShell>
   );
 }

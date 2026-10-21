@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/store/useAuthStore';
 import api from '@/services/api';
-import { BookOpen, Lock, Mail, ArrowRight, Sparkles, Building, AlertCircle } from 'lucide-react';
+import { BRAND, getSupportWhatsAppUrl } from '@/config/brand';
+import { BookOpen, Lock, Mail, ArrowRight, Sparkles, Building, AlertCircle, Eye, EyeOff } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -15,6 +16,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [tenantInfo, setTenantInfo] = useState<any>(null);
 
   useEffect(() => {
@@ -36,7 +38,7 @@ export default function LoginPage() {
               localStorage.setItem('tahfidz_tenant_id', String(res.data.data.id));
             }
           })
-          .catch(() => {});
+          .catch(() => { });
       }
     }
   }, []);
@@ -66,21 +68,17 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center px-4 py-12 relative overflow-hidden">
-      {/* Background ambient glow */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-emerald-500/15 rounded-full blur-[140px] pointer-events-none" />
-      <div className="absolute bottom-10 right-10 w-[400px] h-[400px] bg-teal-500/10 rounded-full blur-[120px] pointer-events-none" />
-
+    <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center px-4 py-12 relative text-slate-900">
       <div className="w-full max-w-md relative z-10">
         {/* Brand Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-400 text-white shadow-xl shadow-emerald-500/25 mb-4">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-brand text-white shadow-md shadow-emerald-600/20 mb-4">
             <BookOpen size={32} />
           </div>
-          <h1 className="text-3xl font-extrabold text-white tracking-tight">
-            {tenantInfo ? tenantInfo.name : 'SaaS Tahfidz Quran'}
+          <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
+            {tenantInfo ? tenantInfo.name : 'Quriva'}
           </h1>
-          <p className="text-sm text-slate-400 mt-2">
+          <p className="text-sm text-slate-500 mt-2">
             {tenantInfo
               ? (tenantInfo.theme_config?.tagline || `Portal Manajemen Tahfidz ${tenantInfo.name}`)
               : 'Platform Terpadu Manajemen Tahfidz, Tahsin & Gamifikasi Santri'}
@@ -88,58 +86,79 @@ export default function LoginPage() {
         </div>
 
         {/* Login Card */}
-        <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-8 shadow-2xl backdrop-blur-xl">
+        <div className="bg-white border border-slate-200/90 rounded-3xl p-8 shadow-sm">
           {errorMsg && (
-            <div className="mb-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-3">
-              <AlertCircle size={18} className="shrink-0 text-rose-400" />
+            <div id="login-error" role="alert" className="mb-6 p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-3">
+              <AlertCircle size={18} className="shrink-0 text-rose-500" />
               <span>{errorMsg}</span>
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-2">
+              <label htmlFor="login-identifier" className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
                 Email / No. WhatsApp
               </label>
               <div className="relative">
-                <Mail className="absolute left-3.5 top-3.5 text-slate-500" size={18} />
+                <Mail className="absolute left-3.5 top-3.5 text-slate-400" size={18} />
                 <input
+                  id="login-identifier"
                   type="text"
                   required
+                  autoComplete="username"
+                  aria-invalid={Boolean(errorMsg)}
+                  aria-describedby={errorMsg ? 'login-error' : undefined}
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
                   placeholder="admin@alhikmah.sch.id"
-                  className="w-full bg-slate-950/80 border border-slate-700/80 rounded-xl px-10 py-3 text-sm text-white placeholder-slate-500 focus:outline-hidden focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                  className="w-full bg-white border border-slate-300 rounded-xl px-10 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 transition-all shadow-sm"
                 />
               </div>
             </div>
 
             <div>
               <div className="flex justify-between items-center mb-2">
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+                <label htmlFor="login-password" className="block text-xs font-bold uppercase tracking-wider text-slate-700">
                   Kata Sandi
                 </label>
-                <a href="#" className="text-xs text-emerald-400 hover:underline">
-                  Lupa kata sandi?
+                <a
+                  href={getSupportWhatsAppUrl('Halo Admin Quriva, saya lupa kata sandi akun dashboard dan membutuhkan bantuan reset.')}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-emerald-700 font-semibold hover:underline"
+                >
+                  Lupa kata sandi? Hubungi Admin
                 </a>
               </div>
               <div className="relative">
-                <Lock className="absolute left-3.5 top-3.5 text-slate-500" size={18} />
+                <Lock className="absolute left-3.5 top-3.5 text-slate-400" size={18} />
                 <input
-                  type="password"
+                  id="login-password"
+                  type={showPassword ? 'text' : 'password'}
                   required
+                  autoComplete="current-password"
+                  aria-invalid={Boolean(errorMsg)}
+                  aria-describedby={errorMsg ? 'login-error' : undefined}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full bg-slate-950/80 border border-slate-700/80 rounded-xl px-10 py-3 text-sm text-white placeholder-slate-500 focus:outline-hidden focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                  className="w-full bg-white border border-slate-300 rounded-xl px-10 py-3 pr-12 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 transition-all shadow-sm"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  aria-label={showPassword ? 'Sembunyikan kata sandi' : 'Tampilkan kata sandi'}
+                  className="absolute inset-y-0 right-0 inline-flex w-11 items-center justify-center rounded-r-xl text-slate-500 hover:text-slate-800"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3.5 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-semibold text-sm rounded-xl shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition-all transform active:scale-[0.99] disabled:opacity-50"
+              className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow-sm flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
             >
               {loading ? (
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -153,58 +172,60 @@ export default function LoginPage() {
           </form>
 
           {/* Registration and Free Features Links */}
-          <div className="mt-6 pt-5 border-t border-slate-800 text-center space-y-3">
-            <p className="text-xs text-slate-400">
+          <div className="mt-6 pt-5 border-t border-slate-100 text-center space-y-3">
+            <p className="text-xs text-slate-600">
               Belum terdaftar sebagai lembaga mitra?{' '}
-              <Link href="/register" className="font-bold text-emerald-400 hover:text-emerald-300 underline transition-colors">
+              <Link href="/register" className="font-bold text-emerald-700 hover:text-emerald-800 underline transition-colors">
                 Daftarkan Lembaga Baru
               </Link>
             </p>
             <div>
               <Link
                 href="/"
-                className="inline-flex items-center gap-1.5 text-xs text-slate-300 hover:text-white px-3 py-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-800 border border-slate-700/80 transition-all"
+                className="inline-flex items-center gap-1.5 text-xs text-slate-700 hover:text-slate-900 px-3 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 transition-all"
               >
-                <span>📖 Buka Al-Qur'an 30 Juz & Kajian Gratis</span>
+                <BookOpen size={14} />
+                <span>Buka Al-Qur'an 30 Juz & Kajian Gratis</span>
               </Link>
             </div>
           </div>
 
-          {/* Quick Demo Credentials */}
-          <div className="mt-6 pt-5 border-t border-slate-800">
-            <p className="text-[11px] font-semibold tracking-wider uppercase text-slate-400 mb-3 text-center">
-              Akses Cepat Demo Akun
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => handleQuickLogin('superadmin@tahfidz.com', 'password123')}
-                className="p-2.5 rounded-lg bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-left transition-all group"
-              >
-                <div className="flex items-center gap-1.5 text-purple-400 text-xs font-semibold">
-                  <Sparkles size={12} />
-                  <span>Super Admin</span>
-                </div>
-                <p className="text-[10px] text-slate-400 mt-0.5">Pemilik SaaS Global</p>
-              </button>
+          {process.env.NODE_ENV !== 'production' && (
+            <div className="mt-6 pt-5 border-t border-slate-100">
+              <p className="text-[11px] font-bold tracking-wider uppercase text-slate-500 mb-3 text-center">
+                Akses Cepat Demo Akun
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleQuickLogin('superadmin@tahfidz.com', 'password123')}
+                  className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-left transition-all cursor-pointer group shadow-sm"
+                >
+                  <div className="flex items-center gap-1.5 text-purple-700 text-xs font-bold">
+                    <Sparkles size={12} />
+                    <span>Super Admin</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-0.5">Pemilik SaaS Global</p>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => handleQuickLogin('admin@alhikmah.sch.id', 'password123')}
-                className="p-2.5 rounded-lg bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-left transition-all group"
-              >
-                <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-semibold">
-                  <Building size={12} />
-                  <span>Tenant Admin</span>
-                </div>
-                <p className="text-[10px] text-slate-400 mt-0.5">Admin Pesantren</p>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => handleQuickLogin('admin@alhikmah.sch.id', 'password123')}
+                  className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-left transition-all cursor-pointer group shadow-sm"
+                >
+                  <div className="flex items-center gap-1.5 text-emerald-700 text-xs font-bold">
+                    <Building size={12} />
+                    <span>Tenant Admin</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-0.5">Admin Pesantren</p>
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         <p className="text-center text-xs text-slate-400 mt-8">
-          © 2026 SaaS Tahfidz & Tahsin Quran. Multi-Tenant Education Ecosystem.
+          © 2026 {BRAND.name}. Islamic Education Ecosystem.
         </p>
       </div>
     </div>

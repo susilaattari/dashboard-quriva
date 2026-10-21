@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import Sidebar from '@/components/layouts/Sidebar';
-import Navbar from '@/components/layouts/Navbar';
+import AppShell from '@/components/layouts/AppShell';
+import PackageHeader from '@/components/superadmin/PackageHeader';
+import PackagePriceSummary from '@/components/superadmin/PackagePriceSummary';
+import PackageSimulator from '@/components/superadmin/PackageSimulator';
 import api from '@/services/api';
 import {
   Check,
@@ -395,71 +397,18 @@ export default function SuperAdminPackages() {
   });
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
-      <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0">
-        <Navbar
+    <AppShell
           title="Manajemen Paket Berlangganan"
           subtitle="Atur paket grup fleksibel (1 Bulan, 6 Bulan, 1 Tahun) dengan kuota dasar & biaya santri tambahan dinamis"
-        />
+        >
 
-        <main className="p-8 space-y-8 flex-1">
-          {/* Header Banner */}
-          <div className="bg-gradient-to-r from-emerald-800 via-teal-800 to-slate-900 rounded-3xl p-8 text-white shadow-xl relative overflow-hidden flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
-            <div className="relative z-10 max-w-2xl">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-500/30 text-emerald-200 rounded-full text-xs font-semibold mb-3">
-                <Sparkles size={14} /> Skema Fleksibel: Per Bulan, 6 Bulan & 1 Tahun
-              </span>
-              <h2 className="text-2xl font-black tracking-tight">
-                Model Penagihan Dinamis & Tambah Santri
-              </h2>
-              <p className="text-sm text-emerald-100/90 mt-2 leading-relaxed">
-                Tentukan paket grup dengan durasi <strong>1 Bulan</strong>, <strong>6 Bulan</strong>, atau <strong>1 Tahun</strong>.
-                Setiap paket memiliki kapasitas dasar (contoh 10 santri) dan tarif penambahan orang yang bisa diatur bebas oleh Super Admin!
-              </p>
-            </div>
-
-            <div className="relative z-10 flex flex-wrap gap-3 shrink-0">
-              <button
-                onClick={() => openCreateGroupModal('monthly')}
-                className="inline-flex items-center gap-2 px-5 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-black rounded-2xl shadow-lg transition-all transform active:scale-95 cursor-pointer"
-              >
-                <Plus size={18} className="text-slate-950" />
-                <span>+ Tambah Paket Durasi</span>
-              </button>
-
-              <button
-                onClick={openCreateCustomModal}
-                className="inline-flex items-center gap-2 px-5 py-3 bg-amber-400 hover:bg-amber-300 text-slate-950 text-sm font-black rounded-2xl shadow-lg transition-all transform active:scale-95 cursor-pointer"
-              >
-                <Sparkles size={18} className="text-slate-900" />
-                <span>+ Paket Custom (Per Santri)</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Quick Filter Tabs */}
-          <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-3">
-            {[
-              { id: 'all', label: 'Semua Paket' },
-              { id: 'monthly', label: '📅 Per Bulan (1 Bln)' },
-              { id: '6_months', label: '📅 Per 6 Bulan' },
-              { id: 'annual', label: '📅 1 Tahun (Tahunan)' },
-              { id: 'custom', label: '👤 Custom (Per Santri)' },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTabFilter(tab.id as any)}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  activeTabFilter === tab.id
-                    ? 'bg-slate-900 text-white shadow-sm'
-                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+        <main className="p-4 sm:p-6 lg:p-8 space-y-8 flex-1">
+          <PackageHeader
+            activeTab={activeTabFilter}
+            onTabChange={(tab) => setActiveTabFilter(tab)}
+            onCreateGroup={() => openCreateGroupModal('monthly')}
+            onCreateCustom={openCreateCustomModal}
+          />
 
           {/* Pricing Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -486,7 +435,7 @@ export default function SuperAdminPackages() {
               return (
                 <div
                   key={pkg.id}
-                  className={`bg-white rounded-3xl p-8 border transition-all relative flex flex-col justify-between shadow-xs hover:shadow-lg ${
+                  className={`bg-white rounded-3xl p-8 border transition-all relative flex flex-col justify-between shadow-sm hover:shadow-lg ${
                     isPerUser
                       ? 'border-amber-400 ring-2 ring-amber-400/20'
                       : isAnnual
@@ -496,274 +445,23 @@ export default function SuperAdminPackages() {
                       : 'border-slate-200'
                   }`}
                 >
-                  {/* Top Badge */}
-                  {isPerUser ? (
-                    <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 text-[11px] font-black uppercase tracking-wider px-4 py-1 rounded-full shadow-md flex items-center gap-1.5">
-                      <Sparkles size={12} />
-                      <span>Paket Custom (Per Santri)</span>
-                    </div>
-                  ) : isAnnual ? (
-                    <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-[11px] font-black uppercase tracking-wider px-4 py-1 rounded-full shadow-md flex items-center gap-1.5">
-                      <Calendar size={12} />
-                      <span>Paket Hemat 1 Tahun</span>
-                    </div>
-                  ) : is6Months ? (
-                    <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-gradient-to-r from-teal-600 to-cyan-600 text-white text-[11px] font-black uppercase tracking-wider px-4 py-1 rounded-full shadow-md flex items-center gap-1.5">
-                      <Clock size={12} />
-                      <span>Paket Pilihan 6 Bulan</span>
-                    </div>
-                  ) : null}
+                  <PackagePriceSummary
+                    pkg={pkg}
+                    simulatedSantri={currentSimSantri}
+                    formatRupiah={formatRupiah}
+                  />
 
-                  <div>
-                    <div className="flex items-center justify-between mb-4">
-                      <div>
-                        <h3 className="text-xl font-bold text-slate-900">{pkg.name}</h3>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-xs font-mono font-bold uppercase px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md inline-block">
-                            {pkg.code}
-                          </span>
-                          <span className="text-[11px] font-bold px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-md inline-block">
-                            {getDurationLabel(pkg)}
-                          </span>
-                        </div>
-                      </div>
-                      <div
-                        className={`w-10 h-10 rounded-2xl flex items-center justify-center font-bold ${
-                          isPerUser
-                            ? 'bg-amber-50 text-amber-600'
-                            : 'bg-emerald-50 text-emerald-600'
-                        }`}
-                      >
-                        {isPerUser ? <UserCheck size={20} /> : <Zap size={20} />}
-                      </div>
-                    </div>
-
-                    {/* Price Tag with Real-time Simulation Feedback */}
-                    <div className="mb-4 bg-slate-50/80 rounded-2xl p-4 border border-slate-100 transition-all">
-                      <div className="flex items-center justify-between gap-2 mb-1">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                          {isSimulating ? '💰 Total Estimasi Simulasi:' : '💰 Tarif Paket:'}
-                        </span>
-                        {isSimulating && (
-                          <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300/60 animate-pulse">
-                            Simulasi {currentSimSantri} Santri
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="text-3xl font-black text-slate-900 tracking-tight transition-all">
-                        {formatRupiah(calculatedPrice)}
-                        <span className="text-xs font-semibold text-slate-500 ml-1.5">
-                          {isPerUser
-                            ? '/ bulan'
-                            : duration === 12
-                            ? '/ tahun'
-                            : duration === 6
-                            ? '/ 6 bulan'
-                            : '/ bulan'}
-                        </span>
-                      </div>
-
-                      <p className="text-xs text-slate-500 mt-1 font-medium">
-                        {isPerUser
-                          ? `👤 ${currentSimSantri} santri × ${formatRupiah(basePrice)} / santri / bulan`
-                          : extraSantri > 0
-                          ? `🏢 Dasar ${formatRupiah(basePrice)} (${baseCapacity} santri) + Tambahan ${extraSantri} santri (${formatRupiah(extraSantri * extraPrice)})`
-                          : `🏢 Harga dasar untuk kuota awal ${baseCapacity} santri`}
-                      </p>
-                    </div>
-
-                    {/* Quota & Extra Price Details */}
-                    {!isPerUser ? (
-                      <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 mb-4 space-y-2">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-slate-500 flex items-center gap-1.5">
-                            <Users size={14} className="text-emerald-600" />
-                            Kapasitas Kuota Dasar:
-                          </span>
-                          <strong className="text-slate-900 font-bold">{baseCapacity} Santri</strong>
-                        </div>
-                        <div className="flex items-center justify-between text-xs pt-1.5 border-t border-slate-200">
-                          <span className="text-slate-500 flex items-center gap-1.5">
-                            <Plus size={14} className="text-amber-600" />
-                            Biaya Tambahan Santri:
-                          </span>
-                          <strong className="text-amber-700 font-bold">
-                            +{formatRupiah(extraPrice)} / santri
-                          </strong>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="bg-amber-50/60 border border-amber-200/80 rounded-2xl p-3.5 mb-4 space-y-2">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-amber-900 flex items-center gap-1.5">
-                            <Users size={14} className="text-amber-600" />
-                            Skema Penagihan:
-                          </span>
-                          <strong className="text-amber-950 font-bold">Kapasitas Bebas (Custom)</strong>
-                        </div>
-                        <div className="flex items-center justify-between text-xs pt-1.5 border-t border-amber-200/60">
-                          <span className="text-amber-900 flex items-center gap-1.5">
-                            <Zap size={14} className="text-amber-600" />
-                            Tarif Satuan:
-                          </span>
-                          <strong className="text-amber-950 font-bold">
-                            {formatRupiah(basePrice)} / santri / bln
-                          </strong>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Live Simulation Calculator in Card (Realtime for both Group & Custom) */}
-                    <div className="bg-emerald-950/5 border border-emerald-500/20 rounded-2xl p-4 mb-5 space-y-3">
-                      <div className="flex items-center justify-between text-xs font-bold text-slate-800">
-                        <span className="flex items-center gap-1.5 text-emerald-800">
-                          <Calculator size={15} /> Simulasi Hitung Harga:
-                        </span>
-                        <div className="flex items-center gap-1.5">
-                          <input
-                            type="number"
-                            min={1}
-                            max={5000}
-                            value={currentSimSantri}
-                            onChange={(e) => {
-                              const val = Math.max(1, Number(e.target.value) || 1);
-                              setSimulatedSantri((prev) => ({
-                                ...prev,
-                                [pkg.id]: val,
-                              }));
-                            }}
-                            className="w-16 px-2 py-0.5 text-center text-xs font-black text-emerald-950 bg-white border border-emerald-300 rounded-lg shadow-inner focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
-                          />
-                          <span className="text-emerald-800 font-extrabold text-xs">Santri</span>
-                        </div>
-                      </div>
-
-                      {/* Controls: -5, -1, Slider, +1, +5 */}
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          title="Kurangi 5 santri"
-                          onClick={() =>
-                            setSimulatedSantri((prev) => ({
-                              ...prev,
-                              [pkg.id]: Math.max(1, Number(prev[pkg.id] ?? defaultSim) - 5),
-                            }))
-                          }
-                          className="px-2 py-1 rounded-lg bg-white border border-slate-300 text-slate-700 font-bold hover:bg-slate-100 flex items-center justify-center cursor-pointer text-[11px] shadow-2xs active:scale-95 transition-all"
-                        >
-                          -5
-                        </button>
-                        <button
-                          type="button"
-                          title="Kurangi 1 santri"
-                          onClick={() =>
-                            setSimulatedSantri((prev) => ({
-                              ...prev,
-                              [pkg.id]: Math.max(1, Number(prev[pkg.id] ?? defaultSim) - 1),
-                            }))
-                          }
-                          className="px-2 py-1 rounded-lg bg-white border border-slate-300 text-slate-700 font-bold hover:bg-slate-100 flex items-center justify-center cursor-pointer text-[11px] shadow-2xs active:scale-95 transition-all"
-                        >
-                          -1
-                        </button>
-
-                        <input
-                          type="range"
-                          min={1}
-                          max={isPerUser ? 100 : Math.max(50, baseCapacity * 3)}
-                          value={currentSimSantri}
-                          onChange={(e) =>
-                            setSimulatedSantri((prev) => ({
-                              ...prev,
-                              [pkg.id]: Number(e.target.value),
-                            }))
-                          }
-                          className="flex-1 accent-emerald-600 cursor-pointer h-2 bg-slate-200 rounded-lg"
-                        />
-
-                        <button
-                          type="button"
-                          title="Tambah 1 santri"
-                          onClick={() =>
-                            setSimulatedSantri((prev) => ({
-                              ...prev,
-                              [pkg.id]: Number(prev[pkg.id] ?? defaultSim) + 1,
-                            }))
-                          }
-                          className="px-2 py-1 rounded-lg bg-white border border-slate-300 text-slate-700 font-bold hover:bg-slate-100 flex items-center justify-center cursor-pointer text-[11px] shadow-2xs active:scale-95 transition-all"
-                        >
-                          +1
-                        </button>
-                        <button
-                          type="button"
-                          title="Tambah 5 santri"
-                          onClick={() =>
-                            setSimulatedSantri((prev) => ({
-                              ...prev,
-                              [pkg.id]: Number(prev[pkg.id] ?? defaultSim) + 5,
-                            }))
-                          }
-                          className="px-2 py-1 rounded-lg bg-white border border-slate-300 text-slate-700 font-bold hover:bg-slate-100 flex items-center justify-center cursor-pointer text-[11px] shadow-2xs active:scale-95 transition-all"
-                        >
-                          +5
-                        </button>
-                      </div>
-
-                      {/* Real-time Calculation Line Breakdown */}
-                      <div className="bg-white/95 border border-emerald-500/20 rounded-xl p-2.5 space-y-1 text-xs">
-                        {isPerUser ? (
-                          <div className="flex items-center justify-between text-slate-600 text-[11px]">
-                            <span>{currentSimSantri} Santri × {formatRupiah(basePrice)}:</span>
-                            <strong className="text-emerald-700 font-black text-xs">
-                              {formatRupiah(calculatedPrice)}
-                            </strong>
-                          </div>
-                        ) : extraSantri > 0 ? (
-                          <>
-                            <div className="flex items-center justify-between text-slate-600 text-[11px]">
-                              <span>Dasar ({baseCapacity} Santri):</span>
-                              <span className="font-semibold text-slate-800">{formatRupiah(basePrice)}</span>
-                            </div>
-                            <div className="flex items-center justify-between text-amber-700 text-[11px]">
-                              <span>+{extraSantri} Santri Tambahan ({extraSantri} × {formatRupiah(extraPrice)}):</span>
-                              <span className="font-semibold">+{formatRupiah(extraSantri * extraPrice)}</span>
-                            </div>
-                            <div className="flex items-center justify-between pt-1 border-t border-slate-100 font-bold">
-                              <span className="text-slate-800">Total Simulasi:</span>
-                              <strong className="text-emerald-700 font-black text-xs">
-                                {formatRupiah(calculatedPrice)}
-                              </strong>
-                            </div>
-                          </>
-                        ) : (
-                          <div className="flex items-center justify-between text-slate-600 text-[11px]">
-                            <span>Masuk dalam kuota dasar ({baseCapacity} Santri):</span>
-                            <strong className="text-emerald-700 font-black text-xs">
-                              {formatRupiah(basePrice)}
-                            </strong>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Reset Button */}
-                      {isSimulating && (
-                        <div className="text-right">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setSimulatedSantri((prev) => ({
-                                ...prev,
-                                [pkg.id]: defaultSim,
-                              }))
-                            }
-                            className="text-[10px] text-emerald-700 hover:text-emerald-900 underline font-semibold cursor-pointer"
-                          >
-                            ↺ Reset ke {isPerUser ? '10 santri' : `kuota dasar (${baseCapacity} santri)`}
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                    <PackageSimulator
+                      pkg={pkg}
+                      value={currentSimSantri}
+                      onChange={(value) =>
+                        setSimulatedSantri((prev) => ({
+                          ...prev,
+                          [pkg.id]: value,
+                        }))
+                      }
+                      formatRupiah={formatRupiah}
+                    />
 
                     {/* Features list */}
                     <div className="space-y-2.5 pt-3 border-t border-slate-100">
@@ -805,7 +503,6 @@ export default function SuperAdminPackages() {
                         );
                       })}
                     </div>
-                  </div>
 
                   {/* Actions */}
                   <div className="mt-8 pt-4 border-t border-slate-100 flex gap-2">
@@ -839,11 +536,10 @@ export default function SuperAdminPackages() {
             </div>
           )}
         </main>
-      </div>
 
       {/* Modal Tambah / Ubah Paket */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl max-w-2xl w-full p-6 sm:p-8 shadow-2xl border border-slate-100 my-8 space-y-6">
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div>
@@ -1014,7 +710,7 @@ export default function SuperAdminPackages() {
                     placeholder="Misal: Paket Grup Bulanan 10 Santri"
                     value={formName}
                     onChange={(e) => setFormName(e.target.value)}
-                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500"
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                   />
                 </div>
 
@@ -1028,7 +724,7 @@ export default function SuperAdminPackages() {
                     placeholder="monthly-10 / 6months-10 / annual-10"
                     value={formCode}
                     onChange={(e) => setFormCode(e.target.value)}
-                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500 font-mono"
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500 font-mono"
                   />
                 </div>
               </div>
@@ -1048,7 +744,7 @@ export default function SuperAdminPackages() {
                     placeholder="50000"
                     value={formPrice}
                     onChange={(e) => setFormPrice(e.target.value)}
-                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500 font-bold text-slate-900"
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500 font-bold text-slate-900"
                   />
                   <p className="text-[10px] text-slate-400 mt-1">
                     {pricingType === 'per_user'
@@ -1082,7 +778,7 @@ export default function SuperAdminPackages() {
                         placeholder="10"
                         value={formMaxSantri}
                         onChange={(e) => setFormMaxSantri(e.target.value)}
-                        className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500 font-bold text-slate-900"
+                        className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500 font-bold text-slate-900"
                       />
                       <p className="text-[10px] text-slate-400">Jumlah santri yang termasuk dalam harga dasar.</p>
                     </div>
@@ -1102,7 +798,7 @@ export default function SuperAdminPackages() {
                     placeholder="5000"
                     value={pricingType === 'per_user' ? 0 : formExtraPrice}
                     onChange={(e) => setFormExtraPrice(e.target.value)}
-                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500 font-bold text-slate-900 disabled:bg-slate-100 disabled:text-slate-400"
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500 font-bold text-slate-900 disabled:bg-slate-100 disabled:text-slate-400"
                   />
                   <p className="text-[10px] text-slate-400 mt-1">
                     Tarif jika lembaga menambah orang di atas kuota dasar.
@@ -1244,6 +940,6 @@ export default function SuperAdminPackages() {
           </div>
         </div>
       )}
-    </div>
+    </AppShell>
   );
 }

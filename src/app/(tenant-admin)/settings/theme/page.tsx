@@ -2,8 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import Sidebar from '@/components/layouts/Sidebar';
-import Navbar from '@/components/layouts/Navbar';
+import AppShell from '@/components/layouts/AppShell';
 import { useAuthStore } from '@/store/useAuthStore';
 import api from '@/services/api';
 import {
@@ -134,15 +133,12 @@ export default function SettingsThemePage() {
 
   if (user?.role === 'guru') {
     return (
-      <div className="flex min-h-screen bg-slate-50">
-        <Sidebar />
-        <div className="flex-1 flex flex-col min-w-0">
-          <Navbar
+      <AppShell
             title="Akses Dibatasi"
             subtitle="Halaman ini hanya dapat diakses oleh Administrator Institusi"
-          />
-          <main className="p-8 flex items-center justify-center flex-1">
-            <div className="max-w-md w-full bg-white rounded-2xl p-8 border border-slate-200 text-center shadow-xs">
+          >
+          <main className="p-4 sm:p-6 lg:p-8 flex items-center justify-center flex-1">
+            <div className="max-w-md w-full bg-white rounded-2xl p-8 border border-slate-200 text-center shadow-sm">
               <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4 border border-amber-200">
                 <ShieldAlert size={32} />
               </div>
@@ -158,23 +154,19 @@ export default function SettingsThemePage() {
               </Link>
             </div>
           </main>
-        </div>
-      </div>
+    </AppShell>
     );
   }
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
-      <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0">
-        <Navbar
+    <AppShell
           title="Pengaturan Institusi & Branding"
           subtitle="Atur model kelembagaan (Pesantren vs Non-Pesantren/Mandiri), pendampingan wali, dan identitas visual aplikasi"
-        />
+        >
 
-        <main className="p-8 max-w-5xl space-y-6 flex-1">
+        <main className="p-4 sm:p-6 lg:p-8 max-w-5xl space-y-6 flex-1">
           {savedSuccess && (
-            <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl flex items-center gap-3 text-sm font-semibold animate-in fade-in">
+            <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl flex items-center gap-3 text-sm font-semibold animate-fade-in motion-reduce:animate-none">
               <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
               <span>{successMessage}</span>
             </div>
@@ -210,7 +202,7 @@ export default function SettingsThemePage() {
           {/* TAB 1: MODEL LEMBAGA & PENDAMPINGAN WALI */}
           {activeTab === 'model' && (
             <div className="space-y-6">
-              <form onSubmit={handleSaveModel} className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-xs space-y-6">
+              <form onSubmit={handleSaveModel} className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6">
                 <div>
                   <div className="flex items-center gap-2 text-slate-900 font-bold text-lg">
                     <Sliders size={20} className="text-emerald-600" />
@@ -344,7 +336,7 @@ export default function SettingsThemePage() {
                           onClick={() => setMemberLabel(opt)}
                           className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                             memberLabel === opt
-                              ? 'bg-slate-900 text-white shadow-xs'
+                              ? 'bg-slate-900 text-white shadow-sm'
                               : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
                           }`}
                         >
@@ -386,7 +378,7 @@ export default function SettingsThemePage() {
           {activeTab === 'theme' && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               {/* Form Settings */}
-              <form onSubmit={handleSaveTheme} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-5">
+              <form onSubmit={handleSaveTheme} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
                 <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
                   <Palette size={20} className="text-emerald-600" />
                   <h3 className="font-bold text-slate-900 text-base">Identitas Visual</h3>
@@ -400,7 +392,7 @@ export default function SettingsThemePage() {
                     type="text"
                     value={institutionName}
                     onChange={(e) => setInstitutionName(e.target.value)}
-                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500"
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                   />
                 </div>
 
@@ -412,7 +404,7 @@ export default function SettingsThemePage() {
                     rows={2}
                     value={tagline}
                     onChange={(e) => setTagline(e.target.value)}
-                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500"
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                   />
                 </div>
 
@@ -427,7 +419,7 @@ export default function SettingsThemePage() {
                         key={color.hex}
                         onClick={() => setPrimaryColor(color.hex)}
                         style={{ backgroundColor: color.hex }}
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-white shadow-xs hover:scale-105 transition-transform cursor-pointer"
+                        className="h-10 w-10 rounded-full flex items-center justify-center text-white shadow-sm transition-transform cursor-pointer"
                         title={color.name}
                       >
                         {primaryColor === color.hex && <Check size={14} strokeWidth={3} />}
@@ -473,7 +465,7 @@ export default function SettingsThemePage() {
                 >
                   <div className="flex items-center gap-3 mb-6">
                     <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-xl font-bold">
-                      {institutionType === 'non_pesantren' ? '👥' : '🕌'}
+                      {institutionType === 'non_pesantren' ? <Users size={16} /> : <Building2 size={16} />}
                     </div>
                     <div>
                       <h4 className="font-extrabold text-lg leading-tight">
@@ -499,7 +491,6 @@ export default function SettingsThemePage() {
             </div>
           )}
         </main>
-      </div>
-    </div>
+    </AppShell>
   );
 }

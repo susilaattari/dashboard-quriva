@@ -4,22 +4,21 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import api from '@/services/api';
+import { BRAND, getTenantHost } from '@/config/brand';
+import OtpVerificationDialog from '@/components/auth/OtpVerificationDialog';
+import RegistrationSuccessScreen from '@/components/auth/RegistrationSuccessScreen';
 import {
   BookOpen,
   Building,
   Check,
-  CheckCircle2,
   ChevronRight,
-  CreditCard,
   Lock,
   Mail,
-  MessageCircle,
   Phone,
   Sparkles,
   Shield,
   ArrowLeft,
   AlertCircle,
-  Clock,
   ExternalLink,
   Users,
   Calculator,
@@ -27,10 +26,10 @@ import {
   Building2,
   HeartHandshake,
   Info,
-  RotateCcw,
   KeyRound,
-  X,
   Loader2,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 interface PackageItem {
@@ -66,6 +65,9 @@ export default function RegisterTenantPage() {
   const [paymentProofNote, setPaymentProofNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [checkingSubdomain, setCheckingSubdomain] = useState(false);
+  const [showAdminPassword, setShowAdminPassword] = useState(false);
 
   // Success state
   const [registrationSuccess, setRegistrationSuccess] = useState<any>(null);
@@ -208,33 +210,69 @@ export default function RegisterTenantPage() {
     if (targetInput) (targetInput as HTMLInputElement).focus();
   };
 
+  const checkSubdomainAvailability = async (value: string) => {
+    if (!value || value.length < 3) return false;
+
+    setCheckingSubdomain(true);
+    try {
+      await api.get(`/tenants/public/${value}`);
+      setFieldErrors((prev) => ({
+        ...prev,
+        subdomain: 'Subdomain ini sudah digunakan. Silakan pilih subdomain lain.',
+      }));
+      return false;
+    } catch (err: any) {
+      if (err.response?.status === 404) {
+        setFieldErrors((prev) => {
+          const next = { ...prev };
+          delete next.subdomain;
+          return next;
+        });
+        return true;
+      }
+      setFieldErrors((prev) => ({
+        ...prev,
+        subdomain: 'Gagal memeriksa ketersediaan subdomain. Coba lagi.',
+      }));
+      return false;
+    } finally {
+      setCheckingSubdomain(false);
+    }
+  };
+
   const handleInitiateRegistration = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
-    // Pre-validations
-    if (!institutionName.trim()) {
-      setErrorMsg('Nama institusi/lembaga wajib diisi.');
-      return;
-    }
+    const errors: Record<string, string> = {};
+    if (!institutionName.trim()) errors.institutionName = 'Nama institusi/lembaga wajib diisi.';
     if (!subdomain.trim() || subdomain.length < 3) {
-      setErrorMsg('Subdomain minimal 3 karakter (huruf, angka, atau strip).');
-      return;
+      errors.subdomain = 'Subdomain minimal 3 karakter (huruf, angka, atau strip).';
     }
-    if (!adminName.trim()) {
-      setErrorMsg('Nama penanggung jawab wajib diisi.');
-      return;
-    }
+    if (!adminName.trim()) errors.adminName = 'Nama penanggung jawab wajib diisi.';
     if (!adminEmail.trim() || !adminEmail.includes('@')) {
-      setErrorMsg('Email penanggung jawab tidak valid.');
-      return;
+      errors.adminEmail = 'Email penanggung jawab tidak valid.';
     }
     if (!adminPhone.trim() || adminPhone.length < 9) {
-      setErrorMsg('Nomor WhatsApp aktif wajib diisi.');
-      return;
+      errors.adminPhone = 'Nomor WhatsApp aktif wajib diisi (minimal 9 digit).';
     }
     if (!adminPassword || adminPassword.length < 6) {
-      setErrorMsg('Kata sandi admin minimal 6 karakter.');
+      errors.adminPassword = 'Kata sandi admin minimal 6 karakter.';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      const firstField = ['institutionName', 'subdomain', 'adminName', 'adminEmail', 'adminPhone', 'adminPassword'].find(
+        (field) => errors[field]
+      );
+      if (firstField) document.getElementById(firstField)?.focus();
+      return;
+    }
+
+    setFieldErrors({});
+    const subdomainAvailable = await checkSubdomainAvailability(subdomain.trim());
+    if (!subdomainAvailable) {
+      document.getElementById('subdomain')?.focus();
       return;
     }
 
@@ -247,11 +285,7 @@ export default function RegisterTenantPage() {
         type: 'registration',
       });
       const data = res.data?.data || {};
-      if (data.dev_otp) {
-        setDevOtpCode(data.dev_otp);
-      } else {
-        setDevOtpCode(null);
-      }
+      setDevOtpCode(process.env.NODE_ENV !== 'production' ? data.dev_otp || null : null);
       setOtpCountdown(300);
       setResendCooldown(30);
       setOtpDigits(['', '', '', '', '', '']);
@@ -275,9 +309,8 @@ export default function RegisterTenantPage() {
         type: 'registration',
       });
       const data = res.data?.data || {};
-      if (data.dev_otp) {
-        setDevOtpCode(data.dev_otp);
-      }
+      setDevOtpCode(process.env.NODE_ENV === 'production' ? null : data.dev_otp || null);
+      setOtpDigits(['', '', '', '', '', '']);
       setOtpCountdown(300);
       setResendCooldown(30);
       setOtpSuccessMsg('Kode verifikasi baru berhasil dikirim ulang ke email Anda.');
@@ -290,6 +323,11 @@ export default function RegisterTenantPage() {
   };
 
   const handleVerifyOtpAndRegister = async () => {
+    if (otpCountdown <= 0) {
+      setOtpError('Kode OTP sudah kedaluwarsa. Silakan kirim ulang kode baru.');
+      return;
+    }
+
     const fullOtp = otpDigits.join('').trim();
     if (fullOtp.length !== 6) {
       setOtpError('Harap masukkan 6 digit kode OTP secara lengkap.');
@@ -345,172 +383,53 @@ export default function RegisterTenantPage() {
     }
   };
 
-  // If already registered successfully, show confirmation screen
   if (registrationSuccess) {
-    const payment = registrationSuccess.payment;
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-xl w-full mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-8 sm:p-10 shadow-2xl space-y-6">
-          <div className="text-center space-y-3">
-            <div className="w-16 h-16 rounded-3xl bg-amber-500/10 border border-amber-500/20 text-amber-400 mx-auto flex items-center justify-center">
-              <Clock size={32} />
-            </div>
-            <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-500/10 text-amber-300 border border-amber-500/20 uppercase tracking-wider inline-block">
-              Menunggu Verifikasi & Persetujuan
-            </span>
-            <h2 className="text-2xl font-black text-white">
-              Pendaftaran Lembaga Diterima!
-            </h2>
-            <p className="text-xs text-slate-400 leading-relaxed max-w-md mx-auto">
-              Terima kasih telah mendaftarkan <strong className="text-slate-200">{registrationSuccess.name}</strong>.
-              Untuk mengaktifkan akun dan subdomain Anda, silakan selesaikan pembayaran transfer manual di bawah ini.
-            </p>
-          </div>
-
-          {/* Registration Summary Card */}
-          <div className="p-5 bg-slate-950/60 rounded-2xl border border-slate-800 space-y-3 text-xs">
-            <div className="flex justify-between items-center py-1 border-b border-slate-800/80">
-              <span className="text-slate-400">Subdomain Sistem:</span>
-              <span className="font-mono font-bold text-emerald-400">
-                {registrationSuccess.subdomain}.tahfidzapp.com
-              </span>
-            </div>
-            <div className="flex justify-between items-center py-1 border-b border-slate-800/80">
-              <span className="text-slate-400">Model Lembaga:</span>
-              <span className="font-semibold text-emerald-400">
-                {registrationSuccess.institution_type === 'non_pesantren'
-                  ? '👥 Non-Pesantren (Mandiri / Tanpa Wali)'
-                  : '🏛️ Pesantren / Sekolah (Dengan Wali Santri)'}
-              </span>
-            </div>
-            <div className="flex justify-between items-center py-1 border-b border-slate-800/80">
-              <span className="text-slate-400">Paket Dipilih:</span>
-              <span className="font-bold text-purple-400">
-                {registrationSuccess.package?.name || 'Paket Standar'}
-              </span>
-            </div>
-            {registrationSuccess.requested_santri_count && (
-              <div className="flex justify-between items-center py-1 border-b border-slate-800/80">
-                <span className="text-slate-400">Kapasitas Santri:</span>
-                <span className="font-bold text-emerald-400">
-                  {registrationSuccess.requested_santri_count} Santri
-                </span>
-              </div>
-            )}
-            <div className="flex justify-between items-center py-1 border-b border-slate-800/80">
-              <span className="text-slate-400">Total Pembayaran:</span>
-              <span className="text-base font-black text-amber-400">
-                {payment?.amount_formatted || 'Rp 50.000'}
-              </span>
-            </div>
-            <div className="flex justify-between items-center py-1">
-              <span className="text-slate-400">Status Akun:</span>
-              <span className="font-semibold text-amber-300">Menunggu Bukti Transfer</span>
-            </div>
-          </div>
-
-          {/* Bank Accounts */}
-          <div className="space-y-3">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-              <CreditCard size={14} className="text-emerald-400" />
-              <span>Rekening Pembayaran Resmi Super Admin:</span>
-            </h4>
-            <div className="space-y-2">
-              {payment?.bank_accounts?.map((acc: any, idx: number) => (
-                <div
-                  key={idx}
-                  className="p-3.5 bg-slate-800/60 border border-slate-700/80 rounded-xl flex items-center justify-between text-xs"
-                >
-                  <div>
-                    <div className="font-bold text-slate-200">{acc.bank}</div>
-                    <div className="text-[11px] text-slate-400">{acc.account_name}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-mono font-bold text-emerald-400 text-sm">{acc.account_number}</div>
-                    <span className="text-[10px] text-slate-400">Salin No. Rek</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Action Button: WhatsApp Super Admin */}
-          <div className="pt-4 space-y-3">
-            {payment?.whatsapp_confirmation_url && (
-              <a
-                href={payment.whatsapp_confirmation_url}
-                target="_blank"
-                rel="noreferrer"
-                className="w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition-all cursor-pointer"
-              >
-                <MessageCircle size={18} />
-                <span>Kirim Bukti Transfer ke WhatsApp Super Admin</span>
-              </a>
-            )}
-
-            <div className="flex gap-2">
-              <Link
-                href="/"
-                className="flex-1 py-2.5 px-4 rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 text-xs font-semibold text-center transition-colors"
-              >
-                Buka Al-Qur'an & Kajian Gratis
-              </Link>
-              <Link
-                href="/login"
-                className="flex-1 py-2.5 px-4 rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 text-xs font-semibold text-center transition-colors"
-              >
-                Ke Halaman Masuk
-              </Link>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return <RegistrationSuccessScreen registration={registrationSuccess} />;
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
       {/* Header Back & Logo */}
       <div className="max-w-3xl w-full mx-auto mb-6 flex items-center justify-between">
         <Link
           href="/"
-          className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-400 hover:text-emerald-300 transition-colors"
+          className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-700 hover:text-emerald-800 transition-colors"
         >
           <ArrowLeft size={16} />
           <span>Kembali ke Beranda (Fitur Gratis)</span>
         </Link>
-        <Link href="/login" className="text-xs text-slate-400 hover:text-white transition-colors">
-          Sudah punya akun? <strong className="text-emerald-400 underline">Masuk di sini</strong>
+        <Link href="/login" className="text-xs text-slate-500 hover:text-slate-900 transition-colors">
+          Sudah punya akun? <strong className="text-emerald-700 underline font-bold">Masuk di sini</strong>
         </Link>
       </div>
 
-      <div className="max-w-3xl w-full mx-auto bg-slate-900 border border-slate-800/90 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-8">
+      <div className="max-w-3xl w-full mx-auto bg-white border border-slate-200/90 rounded-3xl p-6 sm:p-10 shadow-sm space-y-8">
         <div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold mb-3">
-            <Sparkles size={14} />
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold mb-3">
+            <Sparkles size={14} className="text-emerald-600" />
             <span>Pendaftaran Mandiri Mitra Pesantren & Sekolah</span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black text-white">
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900">
             Daftarkan Lembaga Anda ke Ekosistem Tahfidz
           </h1>
-          <p className="text-xs sm:text-sm text-slate-400 mt-1">
+          <p className="text-xs sm:text-sm text-slate-500 mt-1">
             Pilih paket langganan, tentukan subdomain institusi, dan mulai digitalisasi hafalan santri Anda.
           </p>
         </div>
 
         {errorMsg && (
-          <div className="p-4 bg-rose-500/10 border border-rose-500/20 text-rose-300 rounded-2xl text-xs flex items-center gap-2.5">
-            <AlertCircle size={18} className="shrink-0 text-rose-400" />
+          <div role="alert" className="p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl text-xs flex items-center gap-2.5">
+            <AlertCircle size={18} className="shrink-0 text-rose-500" />
             <span>{errorMsg}</span>
           </div>
         )}
 
-        <form onSubmit={handleInitiateRegistration} className="space-y-8">
+        <form onSubmit={handleInitiateRegistration} noValidate className="space-y-8">
           {/* STEP 1: PILIH PAKET LANGGANAN */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                <span className="w-5 h-5 rounded-full bg-emerald-500 text-slate-950 font-black text-xs flex items-center justify-center">1</span>
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center">1</span>
                 Pilih Paket Langganan SaaS
               </label>
               <span className="text-[11px] text-slate-400">Tarif transparan & fitur lengkap</span>
@@ -549,44 +468,44 @@ export default function RegisterTenantPage() {
                       onClick={() => setSelectedPlanId(pkg.id)}
                       className={`p-4 rounded-2xl border text-left transition-all cursor-pointer relative ${
                         isSelected
-                          ? 'border-emerald-500 bg-emerald-950/40 ring-2 ring-emerald-500/30'
-                          : 'border-slate-800 bg-slate-950/50 hover:bg-slate-800/60'
+                          ? 'border-2 border-emerald-600 bg-emerald-50/50 ring-2 ring-emerald-600/20'
+                          : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-800'
                       }`}
                     >
                       {isSelected && (
-                        <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center">
+                        <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center">
                           <Check size={12} strokeWidth={3} />
                         </div>
                       )}
                       <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-mono font-bold uppercase text-emerald-400">
+                        <span className="text-xs font-mono font-bold uppercase text-emerald-800 bg-emerald-100/60 px-1.5 py-0.5 rounded">
                           {pkg.code}
                         </span>
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300">
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
                           {badge}
                         </span>
                       </div>
-                      <div className="text-sm font-bold text-white mt-1 line-clamp-1">{pkg.name}</div>
+                      <div className="text-sm font-bold text-slate-900 mt-1 line-clamp-1">{pkg.name}</div>
                       
                       {/* Realtime dynamic price in card */}
-                      <div className="text-base font-black text-amber-400 mt-2">
+                      <div className="text-base font-black text-slate-900 mt-2">
                         {formatCurrency(liveCardPrice)}
-                        <span className="text-[10px] text-slate-400 font-normal ml-1">
+                        <span className="text-[10px] text-slate-500 font-normal ml-1">
                           {isPkgPerUser ? ' / bln' : d === 12 ? ' / thn' : d === 6 ? ' / 6 bln' : ' / bln'}
                         </span>
                       </div>
 
-                      <div className="text-[11px] text-slate-400 mt-1">
-                        Kuota: <strong className="text-slate-300">{isPkgPerUser ? 'Custom' : `${pkgBase} Santri`}</strong>
+                      <div className="text-[11px] text-slate-500 mt-1">
+                        Kuota: <strong className="text-slate-800">{isPkgPerUser ? 'Custom' : `${pkgBase} Santri`}</strong>
                       </div>
 
                       {/* Realtime breakdown badge in card */}
                       {!isPkgPerUser && pkgExtraSantri > 0 ? (
-                        <div className="text-[10px] text-emerald-400 mt-0.5 font-semibold">
+                        <div className="text-[10px] text-emerald-700 mt-0.5 font-semibold">
                           Termasuk {pkgExtraSantri} santri tambahan (+{formatCurrency(pkgExtraSantri * extra)})
                         </div>
                       ) : !isPkgPerUser && extra > 0 ? (
-                        <div className="text-[10px] text-slate-500 mt-0.5">
+                        <div className="text-[10px] text-slate-400 mt-0.5">
                           +{formatCurrency(extra)} / santri tambah
                         </div>
                       ) : null}
@@ -598,14 +517,14 @@ export default function RegisterTenantPage() {
 
             {/* Dynamic Santri Capacity & Investment Calculator */}
             {selectedPackage && (
-              <div className="mt-4 p-5 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-4">
+              <div className="mt-4 p-5 rounded-2xl bg-slate-50 border border-emerald-200 space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <label className="text-xs font-bold text-white flex items-center gap-1.5">
-                      <Users size={15} className="text-emerald-400" />
+                    <label className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                      <Users size={15} className="text-emerald-600" />
                       Jumlah Santri Lembaga Anda
                     </label>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
+                    <p className="text-[11px] text-slate-500 mt-0.5">
                       {isPerUser
                         ? 'Biaya dihitung murni per santri per bulan'
                         : `Kuota dasar paket ini adalah ${baseCapacity} santri. Jika santri lebih dari ${baseCapacity}, dikenakan +${formatCurrency(extraPrice)} / santri.`}
@@ -616,7 +535,7 @@ export default function RegisterTenantPage() {
                     <button
                       type="button"
                       onClick={() => setRequestedSantriCount((prev) => Math.max(1, prev - 1))}
-                      className="w-9 h-9 rounded-xl bg-slate-800 text-white hover:bg-slate-700 font-bold flex items-center justify-center cursor-pointer border border-slate-700"
+                      className="w-9 h-9 rounded-xl bg-white text-slate-800 hover:bg-slate-100 font-bold flex items-center justify-center cursor-pointer border border-slate-300 shadow-sm"
                     >
                       -
                     </button>
@@ -625,12 +544,12 @@ export default function RegisterTenantPage() {
                       min={1}
                       value={requestedSantriCount}
                       onChange={(e) => setRequestedSantriCount(Math.max(1, Number(e.target.value) || 1))}
-                      className="w-20 text-center bg-slate-950 border border-slate-700 rounded-xl py-1.5 text-sm font-bold text-white focus:outline-hidden focus:border-emerald-500"
+                      className="w-20 text-center bg-white border border-slate-300 rounded-xl py-1.5 text-sm font-bold text-slate-900 focus:outline-none focus:border-emerald-600 shadow-sm"
                     />
                     <button
                       type="button"
                       onClick={() => setRequestedSantriCount((prev) => prev + 1)}
-                      className="w-9 h-9 rounded-xl bg-slate-800 text-white hover:bg-slate-700 font-bold flex items-center justify-center cursor-pointer border border-slate-700"
+                      className="w-9 h-9 rounded-xl bg-white text-slate-800 hover:bg-slate-100 font-bold flex items-center justify-center cursor-pointer border border-slate-300 shadow-sm"
                     >
                       +
                     </button>
@@ -638,10 +557,10 @@ export default function RegisterTenantPage() {
                 </div>
 
                 {/* Calculation Breakdown */}
-                <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                <div className="p-3.5 rounded-xl bg-white border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs shadow-sm">
                   <div className="space-y-0.5">
-                    <span className="text-slate-400">Rincian Perhitungan Biaya ({durationLabel}):</span>
-                    <div className="text-slate-300 font-medium">
+                    <span className="text-slate-500">Rincian Perhitungan Biaya ({durationLabel}):</span>
+                    <div className="text-slate-800 font-medium">
                       {isPerUser ? (
                         <span>{requestedSantriCount} Santri × {formatCurrency(basePrice)} / santri</span>
                       ) : extraSantri > 0 ? (
@@ -654,9 +573,9 @@ export default function RegisterTenantPage() {
                     </div>
                   </div>
 
-                  <div className="text-right border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-800">
-                    <span className="text-[10px] text-slate-400 block uppercase font-semibold">Total Biaya:</span>
-                    <span className="text-lg font-black text-amber-400">
+                  <div className="text-right border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100">
+                    <span className="text-[10px] text-slate-500 block uppercase font-semibold">Total Biaya:</span>
+                    <span className="text-lg font-black text-emerald-700">
                       {formatCurrency(calculatedTotalPrice)}
                     </span>
                   </div>
@@ -666,10 +585,10 @@ export default function RegisterTenantPage() {
           </div>
 
           {/* STEP 2: MODEL LEMBAGA & IDENTITAS */}
-          <div className="space-y-4 pt-4 border-t border-slate-800">
+          <div className="space-y-4 pt-4 border-t border-slate-200">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                <span className="w-5 h-5 rounded-full bg-emerald-500 text-slate-950 font-black text-xs flex items-center justify-center">2</span>
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center">2</span>
                 Kategori Lembaga & Model Pendampingan
               </label>
               <span className="text-[11px] text-slate-400">Pilih model yang sesuai lembaga Anda</span>
@@ -682,23 +601,23 @@ export default function RegisterTenantPage() {
                 onClick={() => setInstitutionType('pesantren')}
                 className={`p-4 rounded-2xl border text-left transition-all cursor-pointer relative ${
                   institutionType === 'pesantren'
-                    ? 'border-emerald-500 bg-emerald-950/40 ring-2 ring-emerald-500/30'
-                    : 'border-slate-800 bg-slate-950/50 hover:bg-slate-800/60'
+                    ? 'border-2 border-emerald-600 bg-emerald-50/50 ring-2 ring-emerald-600/20'
+                    : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-800'
                 }`}
               >
                 {institutionType === 'pesantren' && (
-                  <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center">
+                  <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center">
                     <Check size={12} strokeWidth={3} />
                   </div>
                 )}
-                <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 mb-1">
+                <div className="flex items-center gap-2 text-xs font-bold text-emerald-800 mb-1">
                   <Building2 size={16} />
                   <span>Pesantren / Sekolah / Yayasan</span>
                 </div>
-                <div className="text-xs text-slate-300 font-medium">
+                <div className="text-xs text-slate-600 font-medium">
                   Ada pendampingan <strong>Orang Tua / Wali Santri</strong>. Portal monitoring wali & notifikasi hafalan diaktifkan.
                 </div>
-                <div className="mt-2.5 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300">
+                <div className="mt-2.5 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100/70 text-emerald-800">
                   <HeartHandshake size={11} /> Model dengan Wali Santri
                 </div>
               </button>
@@ -708,31 +627,31 @@ export default function RegisterTenantPage() {
                 onClick={() => setInstitutionType('non_pesantren')}
                 className={`p-4 rounded-2xl border text-left transition-all cursor-pointer relative ${
                   institutionType === 'non_pesantren'
-                    ? 'border-cyan-500 bg-cyan-950/40 ring-2 ring-cyan-500/30'
-                    : 'border-slate-800 bg-slate-950/50 hover:bg-slate-800/60'
+                    ? 'border-2 border-cyan-600 bg-cyan-50/50 ring-2 ring-cyan-600/20'
+                    : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-800'
                 }`}
               >
                 {institutionType === 'non_pesantren' && (
-                  <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-cyan-500 text-slate-950 flex items-center justify-center">
+                  <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-cyan-600 text-white flex items-center justify-center">
                     <Check size={12} strokeWidth={3} />
                   </div>
                 )}
-                <div className="flex items-center gap-2 text-xs font-bold text-cyan-400 mb-1">
+                <div className="flex items-center gap-2 text-xs font-bold text-cyan-800 mb-1">
                   <Users size={16} />
                   <span>Non-Pesantren (Komunitas / Mandiri)</span>
                 </div>
-                <div className="text-xs text-slate-300 font-medium">
+                <div className="text-xs text-slate-600 font-medium">
                   Peserta <strong>belajar mandiri / dewasa</strong> tanpa wali. Akses langsung dipegang peserta tanpa akun wali.
                 </div>
-                <div className="mt-2.5 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300">
+                <div className="mt-2.5 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-cyan-100/70 text-cyan-800">
                   <Sparkles size={11} /> Mandiri (Tanpa Wali)
                 </div>
               </button>
             </div>
 
             {institutionType === 'non_pesantren' && (
-              <div className="p-3.5 bg-cyan-950/40 border border-cyan-500/30 text-cyan-200 rounded-xl text-xs flex items-center gap-2.5">
-                <Info size={16} className="text-cyan-400 shrink-0" />
+              <div className="p-3.5 bg-cyan-50 border border-cyan-200 text-cyan-800 rounded-xl text-xs flex items-center gap-2.5">
+                <Info size={16} className="text-cyan-600 shrink-0" />
                 <span>
                   <strong>Mode Non-Pesantren Aktif:</strong> Sistem akan disesuaikan otomatis untuk peserta mandiri (tanpa kewajiban data akun wali santri).
                 </span>
@@ -741,45 +660,83 @@ export default function RegisterTenantPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Nama Institusi / Lembaga / Komunitas *
                 </label>
                 <input
+                  id="institutionName"
                   type="text"
                   required
+                  autoComplete="organization"
+                  aria-invalid={Boolean(fieldErrors.institutionName)}
+                  aria-describedby={fieldErrors.institutionName ? 'institutionName-error' : undefined}
                   placeholder={
                     institutionType === 'non_pesantren'
                       ? 'Misal: Komunitas Tahfidz Karyawan / Majelis Al-Fatihah'
                       : 'Misal: Pesantren Tahfidz Al-Hikmah'
                   }
                   value={institutionName}
-                  onChange={(e) => setInstitutionName(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-hidden focus:border-emerald-500"
+                  onChange={(e) => {
+                    setInstitutionName(e.target.value);
+                    setFieldErrors((prev) => {
+                      const next = { ...prev };
+                      delete next.institutionName;
+                      return next;
+                    });
+                  }}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
                 />
+                {fieldErrors.institutionName && (
+                  <p id="institutionName-error" role="alert" className="mt-1.5 text-[11px] font-medium text-rose-600">
+                    {fieldErrors.institutionName}
+                  </p>
+                )}
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Subdomain Akses Web *
                 </label>
                 <div className="flex items-center">
                   <input
+                    id="subdomain"
                     type="text"
                     required
+                    autoComplete="off"
+                    aria-invalid={Boolean(fieldErrors.subdomain)}
+                    aria-describedby={fieldErrors.subdomain ? 'subdomain-error' : undefined}
                     placeholder="alhikmah"
                     value={subdomain}
-                    onChange={(e) => handleSubdomainChange(e.target.value)}
-                    className="flex-1 bg-slate-950 border border-r-0 border-slate-700 rounded-l-xl px-3.5 py-2.5 text-sm text-white font-mono focus:outline-hidden focus:border-emerald-500"
+                    onChange={(e) => {
+                      handleSubdomainChange(e.target.value);
+                      setFieldErrors((prev) => {
+                        const next = { ...prev };
+                        delete next.subdomain;
+                        return next;
+                      });
+                    }}
+                    onBlur={() => {
+                      if (subdomain.length >= 3) void checkSubdomainAvailability(subdomain);
+                    }}
+                    className="flex-1 bg-white border border-r-0 border-slate-300 rounded-l-xl px-3.5 py-2.5 text-sm text-slate-900 font-mono focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
                   />
-                  <span className="bg-slate-800 border border-slate-700 rounded-r-xl px-3.5 py-2.5 text-xs text-slate-400 font-mono">
-                    .tahfidzapp.com
+                  <span className="bg-slate-100 border border-slate-300 rounded-r-xl px-3.5 py-2.5 text-xs text-slate-600 font-mono font-medium">
+                    .{BRAND.rootDomain}
                   </span>
                 </div>
+                {checkingSubdomain && (
+                  <p className="mt-1.5 text-[11px] text-slate-500">Memeriksa ketersediaan subdomain...</p>
+                )}
+                {fieldErrors.subdomain && (
+                  <p id="subdomain-error" role="alert" className="mt-1.5 text-[11px] font-medium text-rose-600">
+                    {fieldErrors.subdomain}
+                  </p>
+                )}
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Alamat / Kota Domisili (Opsional)
               </label>
               <input
@@ -787,100 +744,177 @@ export default function RegisterTenantPage() {
                 placeholder="Jl. Raya Soreang No. 45, Bandung, Jawa Barat"
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-hidden focus:border-emerald-500"
+                className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
               />
             </div>
           </div>
 
           {/* STEP 3: AKUN PENANGGUNG JAWAB (ADMIN) */}
-          <div className="space-y-4 pt-4 border-t border-slate-800">
-            <label className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-              <span className="w-5 h-5 rounded-full bg-emerald-500 text-slate-950 font-black text-xs flex items-center justify-center">3</span>
+          <div className="space-y-4 pt-4 border-t border-slate-200">
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center">3</span>
               Akun Administrator & Kontak WhatsApp
             </label>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Nama Penanggung Jawab / Pimpinan *
                 </label>
                 <input
+                  id="adminName"
                   type="text"
                   required
+                  autoComplete="name"
+                  aria-invalid={Boolean(fieldErrors.adminName)}
+                  aria-describedby={fieldErrors.adminName ? 'adminName-error' : undefined}
                   placeholder="Ustadz Abdullah, Lc."
                   value={adminName}
-                  onChange={(e) => setAdminName(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-hidden focus:border-emerald-500"
+                  onChange={(e) => {
+                    setAdminName(e.target.value);
+                    setFieldErrors((prev) => {
+                      const next = { ...prev };
+                      delete next.adminName;
+                      return next;
+                    });
+                  }}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
                 />
+                {fieldErrors.adminName && (
+                  <p id="adminName-error" role="alert" className="mt-1.5 text-[11px] font-medium text-rose-600">
+                    {fieldErrors.adminName}
+                  </p>
+                )}
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Nomor WhatsApp Aktif *
                 </label>
                 <input
+                  id="adminPhone"
                   type="tel"
                   required
+                  autoComplete="tel"
+                  inputMode="tel"
+                  aria-invalid={Boolean(fieldErrors.adminPhone)}
+                  aria-describedby={fieldErrors.adminPhone ? 'adminPhone-error' : undefined}
                   placeholder="081234567890"
                   value={adminPhone}
-                  onChange={(e) => setAdminPhone(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-hidden focus:border-emerald-500"
+                  onChange={(e) => {
+                    setAdminPhone(e.target.value);
+                    setFieldErrors((prev) => {
+                      const next = { ...prev };
+                      delete next.adminPhone;
+                      return next;
+                    });
+                  }}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
                 />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Digunakan untuk konfirmasi aktivasi akun dan pengiriman bukti transfer.
-                </p>
+                {fieldErrors.adminPhone ? (
+                  <p id="adminPhone-error" role="alert" className="mt-1.5 text-[11px] font-medium text-rose-600">
+                    {fieldErrors.adminPhone}
+                  </p>
+                ) : (
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Digunakan untuk konfirmasi aktivasi akun dan pengiriman bukti transfer.
+                  </p>
+                )}
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Email Login Admin *
                 </label>
                 <input
+                  id="adminEmail"
                   type="email"
                   required
+                  autoComplete="email"
+                  aria-invalid={Boolean(fieldErrors.adminEmail)}
+                  aria-describedby={fieldErrors.adminEmail ? 'adminEmail-error' : undefined}
                   placeholder="admin@pesantren.sch.id"
                   value={adminEmail}
-                  onChange={(e) => setAdminEmail(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-hidden focus:border-emerald-500"
+                  onChange={(e) => {
+                    setAdminEmail(e.target.value);
+                    setFieldErrors((prev) => {
+                      const next = { ...prev };
+                      delete next.adminEmail;
+                      return next;
+                    });
+                  }}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
                 />
+                {fieldErrors.adminEmail && (
+                  <p id="adminEmail-error" role="alert" className="mt-1.5 text-[11px] font-medium text-rose-600">
+                    {fieldErrors.adminEmail}
+                  </p>
+                )}
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Kata Sandi Akun (Password) *
                 </label>
-                <input
-                  type="password"
-                  required
-                  placeholder="Minimal 6 karakter"
-                  value={adminPassword}
-                  onChange={(e) => setAdminPassword(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-hidden focus:border-emerald-500"
-                />
+                <div className="relative">
+                  <input
+                    id="adminPassword"
+                    type={showAdminPassword ? 'text' : 'password'}
+                    required
+                    autoComplete="new-password"
+                    minLength={6}
+                    aria-invalid={Boolean(fieldErrors.adminPassword)}
+                    aria-describedby={fieldErrors.adminPassword ? 'adminPassword-error' : undefined}
+                    placeholder="Minimal 6 karakter"
+                    value={adminPassword}
+                    onChange={(e) => {
+                      setAdminPassword(e.target.value);
+                      setFieldErrors((prev) => {
+                        const next = { ...prev };
+                        delete next.adminPassword;
+                        return next;
+                      });
+                    }}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 pr-12 text-sm text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminPassword((prev) => !prev)}
+                    aria-label={showAdminPassword ? 'Sembunyikan kata sandi' : 'Tampilkan kata sandi'}
+                    className="absolute inset-y-0 right-0 inline-flex w-11 items-center justify-center rounded-r-xl text-slate-500 hover:text-slate-800"
+                  >
+                    {showAdminPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+                {fieldErrors.adminPassword && (
+                  <p id="adminPassword-error" role="alert" className="mt-1.5 text-[11px] font-medium text-rose-600">
+                    {fieldErrors.adminPassword}
+                  </p>
+                )}
               </div>
             </div>
           </div>
 
           {/* STEP 4: METODE PEMBAYARAN MANUAL */}
-          <div className="space-y-4 pt-4 border-t border-slate-800">
-            <label className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-              <span className="w-5 h-5 rounded-full bg-emerald-500 text-slate-950 font-black text-xs flex items-center justify-center">4</span>
+          <div className="space-y-4 pt-4 border-t border-slate-200">
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center">4</span>
               Skema Pembayaran Transfer Manual
             </label>
 
-            <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-2xl space-y-3">
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-400">Total Tagihan Awal ({selectedPackage?.name || 'Paket Standar'}):</span>
-                <span className="text-base font-black text-amber-400">
-                  {formatCurrency(selectedPackage?.price || 299000)}
+                <span className="text-slate-600 font-medium">Total Tagihan Awal ({selectedPackage?.name || 'Paket Standar'}):</span>
+                <span className="text-base font-black text-emerald-700">
+                  {formatCurrency(calculatedTotalPrice)}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
+              <p className="text-[11px] text-slate-600 leading-relaxed">
                 Pembayaran dilakukan via transfer manual ke rekening bank Super Admin. Setelah mendaftar, Anda akan diarahkan untuk mengirimkan bukti transfer via WhatsApp agar admin memverifikasi dan mengaktifkan subdomain Anda.
               </p>
 
               <div>
-                <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                   Catatan Transfer / Bank Pengirim (Opsional)
                 </label>
                 <input
@@ -888,7 +922,7 @@ export default function RegisterTenantPage() {
                   placeholder="Contoh: Transfer BSI an. Abdullah Rp 299.000"
                   value={paymentProofNote}
                   onChange={(e) => setPaymentProofNote(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-emerald-500"
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
                 />
               </div>
             </div>
@@ -898,13 +932,13 @@ export default function RegisterTenantPage() {
           <div className="pt-2">
             <button
               type="submit"
-              disabled={submitting}
-              className="w-full py-4 px-6 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-xl shadow-emerald-600/30 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-60"
+              disabled={submitting || checkingSubdomain}
+              className="w-full py-4 px-6 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-sm flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-60"
             >
-              {submitting ? (
+              {submitting || checkingSubdomain ? (
                 <>
                   <Loader2 size={18} className="animate-spin" />
-                  <span>Mengirim Kode OTP ke Email...</span>
+                  <span>{checkingSubdomain ? 'Memeriksa subdomain...' : 'Mengirim Kode OTP ke Email...'}</span>
                 </>
               ) : (
                 <>
@@ -921,132 +955,24 @@ export default function RegisterTenantPage() {
         </form>
       </div>
 
-      {/* MODAL VERIFIKASI OTP 6 DIGIT */}
-      {showOtpModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="max-w-md w-full bg-slate-900 border border-slate-700/80 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 relative animate-in fade-in zoom-in-95 duration-200">
-            {/* Close button */}
-            <button
-              type="button"
-              onClick={() => setShowOtpModal(false)}
-              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-xl hover:bg-slate-800 transition-colors"
-            >
-              <X size={20} />
-            </button>
-
-            {/* Header Icon */}
-            <div className="text-center space-y-2">
-              <div className="w-16 h-16 rounded-3xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 mx-auto flex items-center justify-center shadow-lg shadow-emerald-500/10">
-                <Mail size={32} />
-              </div>
-              <h3 className="text-xl font-black text-white">Verifikasi Email OTP</h3>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Masukkan 6 digit kode rahasia yang telah kami kirimkan ke email Anda:
-              </p>
-              <div className="inline-block px-3 py-1 bg-slate-800/80 border border-slate-700 rounded-full text-xs font-mono font-semibold text-emerald-400">
-                {adminEmail}
-              </div>
-            </div>
-
-            {/* Dev Mode Helper Badge if simulated */}
-            {devOtpCode && (
-              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl text-[11px] text-amber-300 flex items-center justify-between">
-                <span>⚡ Mode Cepat (Testing): Kode OTP Anda:</span>
-                <span className="font-mono font-black text-xs text-amber-200 px-2.5 py-1 bg-amber-500/25 rounded-md tracking-widest border border-amber-500/40">
-                  {devOtpCode}
-                </span>
-              </div>
-            )}
-
-            {/* Status Messages */}
-            {otpError && (
-              <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-xs text-rose-300 flex items-center gap-2">
-                <AlertCircle size={16} className="shrink-0 text-rose-400" />
-                <span>{otpError}</span>
-              </div>
-            )}
-            {otpSuccessMsg && !otpError && (
-              <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl text-xs text-emerald-300 flex items-center gap-2">
-                <CheckCircle2 size={16} className="shrink-0 text-emerald-400" />
-                <span>{otpSuccessMsg}</span>
-              </div>
-            )}
-
-            {/* 6 Digit Inputs */}
-            <div>
-              <div className="flex justify-center gap-2 sm:gap-2.5 my-3">
-                {otpDigits.map((digit, index) => (
-                  <input
-                    key={index}
-                    id={`otp-box-${index}`}
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={1}
-                    value={digit}
-                    onChange={(e) => handleDigitChange(index, e.target.value)}
-                    onKeyDown={(e) => handleKeyDown(index, e)}
-                    onPaste={handlePaste}
-                    autoFocus={index === 0}
-                    className="w-11 h-14 sm:w-12 sm:h-16 text-center text-xl sm:text-2xl font-black font-mono bg-slate-950 border-2 border-slate-700 rounded-xl text-white focus:outline-hidden focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
-                  />
-                ))}
-              </div>
-              <div className="flex items-center justify-between text-xs text-slate-400 mt-2 px-1">
-                <span className="flex items-center gap-1">
-                  <Clock size={13} className="text-slate-400" />
-                  <span>
-                    Berlaku: {Math.floor(otpCountdown / 60)}:
-                    {(otpCountdown % 60).toString().padStart(2, '0')}
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  onClick={handleResendOtp}
-                  disabled={resendCooldown > 0 || otpSending}
-                  className="text-emerald-400 hover:text-emerald-300 disabled:text-slate-600 font-semibold transition-colors flex items-center gap-1 cursor-pointer disabled:cursor-not-allowed"
-                >
-                  <RotateCcw size={12} className={otpSending ? 'animate-spin' : ''} />
-                  <span>
-                    {resendCooldown > 0 ? `Kirim Ulang (${resendCooldown}s)` : 'Kirim Ulang OTP'}
-                  </span>
-                </button>
-              </div>
-              <p className="text-[11px] text-slate-400/80 mt-2.5 text-center leading-relaxed bg-slate-950/40 p-2 rounded-xl border border-slate-800">
-                💡 <em>Belum melihat email?</em> Periksa tab <strong>Pembaruan/Promosi</strong> atau folder <strong>Spam</strong>, lalu klik <strong>"Bukan Spam"</strong>.
-              </p>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="space-y-2 pt-2">
-              <button
-                type="button"
-                onClick={handleVerifyOtpAndRegister}
-                disabled={otpVerifying || otpDigits.join('').length !== 6}
-                className="w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {otpVerifying ? (
-                  <>
-                    <Loader2 size={18} className="animate-spin" />
-                    <span>Memverifikasi & Mendaftarkan...</span>
-                  </>
-                ) : (
-                  <>
-                    <Check size={18} />
-                    <span>Verifikasi & Selesaikan Pendaftaran</span>
-                  </>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowOtpModal(false)}
-                className="w-full py-2.5 text-xs font-semibold text-slate-400 hover:text-slate-200 transition-colors"
-              >
-                Ubah Data Email atau Batal
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <OtpVerificationDialog
+        open={showOtpModal}
+        onClose={() => setShowOtpModal(false)}
+        email={adminEmail}
+        digits={otpDigits}
+        countdown={otpCountdown}
+        resendCooldown={resendCooldown}
+        sending={otpSending}
+        verifying={otpVerifying}
+        error={otpError}
+        successMessage={otpSuccessMsg}
+        devOtpCode={devOtpCode}
+        onDigitChange={handleDigitChange}
+        onKeyDown={handleKeyDown}
+        onPaste={handlePaste}
+        onResend={handleResendOtp}
+        onVerify={handleVerifyOtpAndRegister}
+      />
     </div>
   );
 }

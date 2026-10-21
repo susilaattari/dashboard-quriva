@@ -21,6 +21,30 @@ module.exports = {
           900: '#064e3b',
         },
       },
+      keyframes: {
+        'fade-in': {
+          from: { opacity: '0' },
+          to: { opacity: '1' },
+        },
+        'slide-in-top': {
+          from: { opacity: '0', transform: 'translateY(-8px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
+        'slide-in-bottom': {
+          from: { opacity: '0', transform: 'translateY(8px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
+        'slide-in-right': {
+          from: { transform: 'translateX(-100%)' },
+          to: { transform: 'translateX(0)' },
+        },
+      },
+      animation: {
+        'fade-in': 'fade-in 200ms ease-out',
+        'slide-in-top': 'slide-in-top 300ms ease-out',
+        'slide-in-bottom': 'slide-in-bottom 300ms ease-out',
+        'slide-in-right': 'slide-in-right 220ms ease-out',
+      },
     },
   },
   plugins: [],

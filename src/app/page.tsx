@@ -1,15 +1,17 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { QURAN_SURAHS, SurahData } from '@/data/quranSurah';
+import { useAuthStore } from '@/store/useAuthStore';
 import api from '@/services/api';
+import { BRAND, getBankTransferInfo, getTenantHost } from '@/config/brand';
+import { renderTemplate } from '@/lib/format';
+import PublicQuranSection from '@/components/public/PublicQuranSection';
+import PublicKajianSection from '@/components/public/PublicKajianSection';
+import PublicUpgradeDialog from '@/components/public/PublicUpgradeDialog';
 import {
   BookOpen,
-  Play,
-  Pause,
-  Search,
   Sparkles,
   Lock,
   CheckCircle2,
@@ -29,6 +31,15 @@ import {
   GraduationCap,
   Calendar,
   Share2,
+  Phone,
+  Mail,
+  Clock,
+  Layers,
+  Zap,
+  Star,
+  Flame,
+  LayoutDashboard,
+  CheckCircle,
 } from 'lucide-react';
 
 interface FreeMaterial {
@@ -80,142 +91,156 @@ const FREE_MATERIALS: FreeMaterial[] = [
   },
 ];
 
+interface PortalContent {
+  id?: number;
+  welcome_title: string;
+  welcome_subtitle: string;
+  gratitude_message: string;
+  announcement_badge: string;
+  superadmin_name: string;
+  superadmin_phone: string;
+  superadmin_email: string;
+  superadmin_office_hours: string;
+  upgrade_title: string;
+  upgrade_description: string;
+  upgrade_whatsapp_template: string;
+  bank_transfer_info: string;
+  show_packages: boolean;
+  show_contact: boolean;
+  show_upgrade_cta: boolean;
+  is_custom_override?: boolean;
+}
+
+interface TenantInfo {
+  id: number;
+  name: string;
+  subdomain: string;
+  status: string;
+  institution_type?: string;
+  member_label?: string;
+  has_wali?: boolean;
+  theme_config?: any;
+  subscription_expires_at?: string;
+  days_remaining?: number;
+  is_expiring_soon?: boolean;
+  is_expired?: boolean;
+  subscription_status?: string;
+  current_plan?: {
+    id: number;
+    name: string;
+    code: string;
+    price: number;
+    max_santri: number;
+    features?: any;
+  };
+  stats?: {
+    total_santri: number;
+    total_guru: number;
+  };
+}
+
 export default function HomePage() {
   const router = useRouter();
+  const { user, loadFromStorage } = useAuthStore();
+
+  // Subdomain & Portal state
+  const [currentSubdomain, setCurrentSubdomain] = useState<string>('');
+  const [tenant, setTenant] = useState<TenantInfo | null>(null);
+  const [content, setContent] = useState<PortalContent>({
+    welcome_title: 'Ahlan wa Sahlan, Selamat Datang di Portal Quriva',
+    welcome_subtitle: 'Platform Resmi Monitoring & Manajemen Hafalan Al-Qur\'an Terpadu',
+    gratitude_message: 'Jazakumullah Khairan Katsiran kepada segenap Pengurus, Dewan Asatidz, Santri, dan seluruh Wali Santri yang telah mempercayakan pengelolaan tahfidz dan tahsin kepada kami.',
+    announcement_badge: 'Pesan Resmi Manajemen Pusat Quriva',
+    superadmin_name: 'Tim Kemitraan & Dukungan Superadmin Quriva',
+    superadmin_phone: BRAND.supportWhatsApp,
+    superadmin_email: BRAND.supportEmail,
+    superadmin_office_hours: 'Senin - Sabtu: 08:00 - 17:00 WIB',
+    upgrade_title: 'Upgrade Paket & Maksimalkan Kapasitas Institusi Anda',
+    upgrade_description: 'Tingkatkan kuota santri tanpa batas, modul LMS video & meet, sistem penilaian cepat (tap), e-sertifikat tasmi digital berbarcode, serta pendampingan prioritas.',
+    upgrade_whatsapp_template: 'Halo Tim Admin Quriva, kami dari institusi {tenant_name} (Subdomain: {subdomain}) berencana untuk konsultasi dan upgrade ke paket {package_name}. Mohon informasi aktivasi dan rekening pembayarannya. Terima kasih!',
+    bank_transfer_info: getBankTransferInfo(),
+    show_packages: true,
+    show_contact: true,
+    show_upgrade_cta: true,
+  });
+  const [packages, setPackages] = useState<any[]>([]);
+  const [loadingPortal, setLoadingPortal] = useState(true);
+
+  // Upgrade Modal State
+  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+  const [selectedUpgradePkg, setSelectedUpgradePkg] = useState<any>(null);
 
   // Navigation tab
-  const [activeMainTab, setActiveMainTab] = useState<'quran' | 'kajian' | 'paket'>('quran');
-
-  // Quran state
-  const [searchSurah, setSearchSurah] = useState('');
-  const [filterJuz, setFilterJuz] = useState<string>('all');
-  const [selectedSurah, setSelectedSurah] = useState<SurahData | null>(null);
-  const [isReaderOpen, setIsReaderOpen] = useState(false);
-  const [surahAyahs, setSurahAyahs] = useState<any[]>([]);
-  const [loadingAyahs, setLoadingAyahs] = useState(false);
-
-  // Audio player state
-  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [activeMainTab, setActiveMainTab] = useState<'beranda' | 'quran' | 'kajian' | 'paket'>('beranda');
 
   // Kajian Video state
   const [selectedVideo, setSelectedVideo] = useState<FreeMaterial | null>(null);
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
 
-  // Packages state
-  const [packages, setPackages] = useState<any[]>([]);
-
+  // 1. Detect Subdomain on Mount
   useEffect(() => {
-    api.get('/packages')
-      .then((res) => {
-        setPackages(res.data?.data || []);
-      })
-      .catch(() => {});
-  }, []);
+    loadFromStorage();
 
-  // Filter surahs
-  const filteredSurahs = useMemo(() => {
-    return QURAN_SURAHS.filter((s) => {
-      const matchSearch =
-        s.name.toLowerCase().includes(searchSurah.toLowerCase()) ||
-        s.translation.toLowerCase().includes(searchSurah.toLowerCase()) ||
-        String(s.number) === searchSurah.trim();
+    if (typeof window !== 'undefined') {
+      let sub = '';
 
-      if (!matchSearch) return false;
-
-      if (filterJuz === 'juz30') return s.juz === 30 || s.number >= 78;
-      if (filterJuz === 'pilihan') {
-        return [1, 18, 36, 55, 56, 67].includes(s.number);
+      // Check URL query param first (e.g. ?subdomain=alhikmah) for testing/demo
+      const urlParams = new URLSearchParams(window.location.search);
+      const querySub = urlParams.get('subdomain');
+      if (querySub) {
+        sub = querySub.trim().toLowerCase();
       }
-      return true;
-    });
-  }, [searchSurah, filterJuz]);
 
-  // Open Surah Reader & fetch verses
-  const handleOpenSurah = async (surah: SurahData) => {
-    setSelectedSurah(surah);
-    setIsReaderOpen(true);
-    setLoadingAyahs(true);
-    setSurahAyahs([]);
-    setIsPlayingAudio(false);
-
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
-
-    try {
-      // Fetch authentic verses from reputable Indonesian Quran API (equran.id)
-      const res = await fetch(`https://equran.id/api/v2/surat/${surah.number}`);
-      if (res.ok) {
-        const data = await res.json();
-        setSurahAyahs(data.data?.ayat || []);
-      } else {
-        // Fallback to alquran.cloud global API
-        const altRes = await fetch(`https://api.alquran.cloud/v1/surah/${surah.number}/editions/quran-uthmani,id.indonesian`);
-        if (altRes.ok) {
-          const altData = await altRes.json();
-          const arAyahs = altData.data?.[0]?.ayahs || [];
-          const idAyahs = altData.data?.[1]?.ayahs || [];
-          const combined = arAyahs.map((a: any, i: number) => ({
-            nomorAyat: a.numberInSurah,
-            teksArab: a.text,
-            teksLatin: '',
-            teksIndonesia: idAyahs[i]?.text || '',
-          }));
-          setSurahAyahs(combined);
+      // If not in query, check hostname
+      if (!sub) {
+        const hostname = window.location.hostname.toLowerCase();
+        if (hostname.endsWith('.localhost')) {
+          sub = hostname.replace('.localhost', '');
+        } else if (hostname.endsWith('.lvh.me')) {
+          sub = hostname.replace('.lvh.me', '');
         } else {
-          throw new Error('Fallback needed');
+          const parts = hostname.split('.');
+          if (parts.length > 2 && parts[0] !== 'www' && parts[0] !== 'api') {
+            sub = parts[0];
+          }
         }
       }
-    } catch (e) {
-      // Offline fallback: generate structured verse previews
-      const mockVerses = Array.from({ length: Math.min(surah.numberOfAyahs, 20) }, (_, i) => ({
-        nomorAyat: i + 1,
-        teksArab: 'بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ',
-        teksLatin: 'Bismillahir rahmanir rahiim',
-        teksIndonesia: `Ayat ke-${i + 1} dari Surah ${surah.name}. (Mode offline terpasang)`,
-      }));
-      setSurahAyahs(mockVerses);
+
+      // Filter out reserved words
+      if (['www', 'api', 'admin', 'localhost', '127.0.0.1'].includes(sub)) {
+        sub = '';
+      }
+
+      setCurrentSubdomain(sub);
+      fetchPortalData(sub);
+    }
+  }, []);
+
+  const fetchPortalData = async (sub: string) => {
+    try {
+      setLoadingPortal(true);
+      const endpoint = sub ? `/dashboard-content/public/${sub}` : '/dashboard-content/public';
+      const res = await api.get(endpoint);
+
+      if (res.data?.data) {
+        const { tenant: tData, content: cData, packages: pData } = res.data.data;
+        if (tData) setTenant(tData);
+        if (cData) setContent(cData);
+        if (pData) setPackages(pData);
+      }
+    } catch (err) {
+      console.warn('Failed to load portal content:', err);
     } finally {
-      setLoadingAyahs(false);
+      setLoadingPortal(false);
     }
   };
 
-  // Toggle Murottal Audio
-  const toggleMurottalAudio = () => {
-    if (!selectedSurah) return;
-
-    if (!audioRef.current) {
-      const formattedNum = String(selectedSurah.number).padStart(3, '0');
-      // High-speed CDN Murottal by Syaikh Misyari Rasyid Al-Afasy
-      const audioUrl = `https://cdn.islamic.network/quran/audio-surah/128/ar.alafasy/${selectedSurah.number}.mp3`;
-      audioRef.current = new Audio(audioUrl);
-      audioRef.current.onended = () => setIsPlayingAudio(false);
-      audioRef.current.onerror = () => {
-        setIsPlayingAudio(false);
-        alert('Audio murottal sedang dimuat atau koneksi terbatas.');
-      };
-    }
-
-    if (isPlayingAudio) {
-      audioRef.current.pause();
-      setIsPlayingAudio(false);
+  const handleSwitchSubdomain = (targetSub: string) => {
+    if (!targetSub) {
+      window.location.href = window.location.pathname;
     } else {
-      audioRef.current.play().then(() => {
-        setIsPlayingAudio(true);
-      }).catch((e) => {
-        console.warn('Audio play failed:', e);
-      });
+      window.location.href = `${window.location.pathname}?subdomain=${targetSub}`;
     }
-  };
-
-  const closeSurahReader = () => {
-    setIsReaderOpen(false);
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current = null;
-    }
-    setIsPlayingAudio(false);
   };
 
   const formatCurrency = (val: number) => {
@@ -223,445 +248,540 @@ export default function HomePage() {
       style: 'currency',
       currency: 'IDR',
       maximumFractionDigits: 0,
-    }).format(val);
+    }).format(val || 0);
   };
 
+  // Build WhatsApp upgrade URL
+  const getWhatsAppUpgradeUrl = (pkg?: any) => {
+    const phone = content.superadmin_phone.replace(/[^0-9]/g, '');
+    const cleanPhone = phone.startsWith('0') ? `62${phone.slice(1)}` : phone;
+
+    const tenantName = tenant ? tenant.name : 'Institusi Pengguna';
+    const sub = tenant ? tenant.subdomain : (currentSubdomain || '-');
+    const pkgName = pkg ? pkg.name : (selectedUpgradePkg ? selectedUpgradePkg.name : 'Paket Langganan');
+
+    let template = content.upgrade_whatsapp_template ||
+      'Halo Tim Superadmin , kami dari institusi {tenant_name} (Subdomain: {subdomain}) berencana untuk konsultasi dan upgrade ke paket {package_name}.';
+
+    template = template
+      .replace(/\{tenant_name\}/gi, tenantName)
+      .replace(/\{subdomain\}/gi, sub)
+      .replace(/\{package_name\}/gi, pkgName);
+
+    return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(template)}`;
+  };
+
+  const handleOpenUpgradeModal = (pkg: any) => {
+    setSelectedUpgradePkg(pkg);
+    setIsUpgradeModalOpen(true);
+  };
+
+  const renderContent = (text: string) =>
+    renderTemplate(text, {
+      tenant_name: tenant?.name || BRAND.name,
+      subdomain: tenant?.subdomain || currentSubdomain || 'portal',
+      package_name: selectedUpgradePkg?.name || 'Paket Standar',
+    });
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-emerald-100 selection:text-emerald-900">
+      {/* Top Banner: Subdomain Indicator & Quick Demo Switcher */}
+      <div className="bg-emerald-50 border-b border-emerald-100 text-xs px-4 py-2 text-emerald-900">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
+            <span className="text-emerald-900 font-medium">
+              {tenant ? (
+                <>
+                  Portal Resmi: <strong className="text-emerald-950 font-bold">{tenant.name}</strong>
+                  <span className="text-emerald-700/80 ml-1.5 font-mono text-[11px]">({getTenantHost(tenant.subdomain)})</span>
+                </>
+              ) : (
+                <>
+                  Portal Utama: <strong className="text-emerald-950 font-bold">Quriva</strong> — Sistem Informasi Manajemen Tahfidz Al-Qur'an
+                </>
+              )}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {process.env.NODE_ENV !== 'production' && (
+              <div className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-lg border border-emerald-200/80 text-[11px] shadow-sm">
+                <span className="text-slate-500">Pilih Subdomain:</span>
+                <select
+                  value={currentSubdomain}
+                  onChange={(e) => handleSwitchSubdomain(e.target.value)}
+                  className="bg-transparent text-emerald-800 font-bold focus:outline-none cursor-pointer"
+                >
+                  <option value="">-- Portal Pusat --</option>
+                  <option value="alhikmah">Pesantren Al-Hikmah (alhikmah)</option>
+                  <option value="darulquran">Rumah Tahfidz Darul Quran (darulquran)</option>
+                  <option value="sahabatquran">Sahabat Quran (sahabatquran)</option>
+                  <option value="albarokah">Al Barokah (albarokah)</option>
+                </select>
+              </div>
+            )}
+
+            {/* Direct Superadmin WhatsApp shortcut */}
+            {content.superadmin_phone && (
+              <a
+                href={`https://wa.me/${content.superadmin_phone.replace(/[^0-9]/g, '')}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-900 font-bold transition-colors text-[11px]"
+              >
+                <MessageCircle size={14} className="text-emerald-600" />
+                <span>CS Superadmin</span>
+              </a>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Top Navbar */}
-      <header className="sticky top-0 z-40 bg-slate-950/80 backdrop-blur-md border-b border-slate-800/80">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-4">
+      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-sm">
+        <div className="mx-auto flex min-h-20 max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:h-20 lg:flex-nowrap lg:px-8 lg:py-0">
           {/* Logo & Brand */}
-          <Link href="/" className="flex items-center gap-3 group">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-lg shadow-emerald-600/30 group-hover:scale-105 transition-transform">
+          <Link href={currentSubdomain ? `/?subdomain=${currentSubdomain}` : '/'} className="flex items-center gap-3 group">
+            <div className="w-11 h-11 rounded-2xl bg-brand flex items-center justify-center text-white shadow-md shadow-emerald-600/20 group-hover:scale-105 transition-transform">
               <BookOpen size={22} />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-black text-lg tracking-tight text-white">SaaS Tahfidz</span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  Portal Qurani
+                <span className="font-black text-lg tracking-tight text-slate-900">
+                  {tenant ? tenant.name : 'Quriva'}
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  {tenant ? 'Portal Subdomain' : 'Portal Utama'}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400">Al-Qur'an & Kajian Terbuka Gratis</p>
+              <p className="text-[11px] text-slate-500">
+                {tenant
+                  ? (tenant.theme_config?.tagline || 'Sistem Informasi & Monitoring Hafalan Al-Qur\'an')
+                  : 'Platform Manajemen & Monitoring Hafalan Al-Qur\'an'}
+              </p>
             </div>
           </Link>
 
           {/* Quick Section Switcher */}
-          <nav className="hidden md:flex items-center gap-1 bg-slate-900/80 p-1 rounded-2xl border border-slate-800 text-xs font-semibold">
+          <nav className="order-3 flex w-full items-center gap-1 overflow-x-auto rounded-2xl border border-slate-200/80 bg-slate-100 p-1 text-xs font-semibold lg:order-none lg:w-auto">
             <button
-              onClick={() => setActiveMainTab('quran')}
-              className={`px-4 py-2 rounded-xl transition-all cursor-pointer ${
-                activeMainTab === 'quran'
-                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
-                  : 'text-slate-400 hover:text-white'
-              }`}
+              onClick={() => setActiveMainTab('beranda')}
+              className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap px-4 py-2 rounded-xl transition-all cursor-pointer ${activeMainTab === 'beranda'
+                ? 'bg-white text-emerald-700 shadow-sm font-bold'
+                : 'text-slate-600 hover:text-slate-900'
+                }`}
             >
-              📖 Al-Qur'an 30 Juz
-            </button>
-            <button
-              onClick={() => setActiveMainTab('kajian')}
-              className={`px-4 py-2 rounded-xl transition-all cursor-pointer ${
-                activeMainTab === 'kajian'
-                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              🎥 Kajian & Tahsin
+              <Building size={14} /> Beranda Portal
             </button>
             <button
               onClick={() => setActiveMainTab('paket')}
-              className={`px-4 py-2 rounded-xl transition-all cursor-pointer ${
-                activeMainTab === 'paket'
-                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
-                  : 'text-slate-400 hover:text-white'
-              }`}
+              className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap px-4 py-2 rounded-xl transition-all cursor-pointer ${activeMainTab === 'paket'
+                ? 'bg-white text-emerald-700 shadow-sm font-bold'
+                : 'text-slate-600 hover:text-slate-900'
+                }`}
             >
-              💎 Paket Lembaga
+              <Layers size={14} /> Paket & Fitur
+            </button>
+            <button
+              onClick={() => setActiveMainTab('quran')}
+              className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap px-4 py-2 rounded-xl transition-all cursor-pointer ${activeMainTab === 'quran'
+                ? 'bg-white text-emerald-700 shadow-sm font-bold'
+                : 'text-slate-600 hover:text-slate-900'
+                }`}
+            >
+              <BookOpen size={14} /> Al-Qur'an 30 Juz
+            </button>
+            <button
+              onClick={() => setActiveMainTab('kajian')}
+              className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap px-4 py-2 rounded-xl transition-all cursor-pointer ${activeMainTab === 'kajian'
+                ? 'bg-white text-emerald-700 shadow-sm font-bold'
+                : 'text-slate-600 hover:text-slate-900'
+                }`}
+            >
+              <Video size={14} /> Kajian Video
             </button>
           </nav>
 
           {/* Action Buttons */}
           <div className="flex items-center gap-3">
-            <Link
-              href="/login"
-              className="px-4 py-2.5 rounded-xl border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white text-xs font-bold transition-colors"
-            >
-              Masuk Akun
-            </Link>
-            <Link
-              href="/register"
-              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/25 flex items-center gap-1.5 transition-all transform hover:-translate-y-0.5"
-            >
-              <Sparkles size={14} />
-              <span>Daftar Lembaga</span>
-            </Link>
+            {user ? (
+              <Link
+                href={user.role === 'super_admin' ? '/superadmin/dashboard' : '/dashboard'}
+                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm flex items-center gap-2 transition-all"
+              >
+                <LayoutDashboard size={16} />
+                <span>Buka Dashboard</span>
+              </Link>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 hover:border-slate-400 bg-white text-slate-700 hover:text-slate-900 text-xs font-bold transition-colors shadow-sm"
+                >
+                  Masuk Akun
+                </Link>
+                <Link
+                  href="/register"
+                  className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all"
+                >
+                  <Sparkles size={14} />
+                  <span>Daftar Lembaga</span>
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </header>
 
-      {/* Hero Welcome Banner */}
-      <section className="relative overflow-hidden pt-12 pb-16 border-b border-slate-800/60 bg-gradient-to-b from-slate-900/60 to-slate-950">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 text-center space-y-5">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold">
-            <span>✨ 100% Gratis untuk Pengunjung & Umat</span>
+      {/* HERO SECTION: WELCOME & GRATITUDE FROM SUPERADMIN */}
+      <section className="bg-gradient-to-b from-white via-emerald-50/20 to-slate-50 border-b border-slate-200/80 pt-10 pb-16">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
+          {/* Announcement Badge */}
+          <div className="text-center">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-100/70 border border-emerald-200 text-emerald-800 text-xs font-bold shadow-sm">
+              <Sparkles size={14} className="text-emerald-600" />
+              <span>{renderContent(content.announcement_badge)}</span>
+            </div>
           </div>
 
-          <h1 className="text-3xl sm:text-5xl font-black tracking-tight text-white max-w-3xl mx-auto leading-tight">
-            Baca Al-Qur'an 30 Juz & Pelajari Kajian Tahsin Tanpa Biaya
-          </h1>
+          {/* Welcome Heading & Subtitle */}
+          <div className="text-center max-w-4xl mx-auto space-y-3">
+            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-slate-900 leading-tight">
+              {renderContent(content.welcome_title)}
+            </h1>
+            <p className="text-base sm:text-lg text-slate-600 leading-relaxed font-normal max-w-3xl mx-auto">
+              {renderContent(content.welcome_subtitle)}
+            </p>
+          </div>
 
-          <p className="text-sm sm:text-base text-slate-300 max-w-2xl mx-auto leading-relaxed">
-            Nikmati mushaf digital 114 Surah lengkap dengan murottal merdu dan video kajian tahsin.
-            Bagi pimpinan pondok pesantren & sekolah, daftarkan lembaga Anda untuk sistem monitoring hafalan santri otomatis.
-          </p>
+          {/* GRATITUDE BOX: FROM SUPERADMIN TO CUSTOMER */}
+          <div className="max-w-4xl mx-auto bg-white border border-emerald-200/80 rounded-3xl p-6 sm:p-8 shadow-sm ring-1 ring-emerald-500/10 relative overflow-hidden">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-4 border-b border-slate-100 pb-3">
+                <span className="text-xs font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-2">
+                  <MessageCircle size={16} className="text-emerald-600" />
+                  <span>Pesan Ucapan Terima Kasih Dari Manajemen Quriva</span>
+                </span>
+                <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">
+                  Pesan Resmi Kemitraan Quriva
+                </span>
+              </div>
 
-          {/* Quick Tab Switcher Mobile / Hero */}
+              <blockquote className="text-sm sm:text-base text-slate-800 leading-relaxed italic font-serif">
+                "{renderContent(content.gratitude_message)}"
+              </blockquote>
+
+              <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-500 border-t border-slate-100">
+                <div className="flex items-center gap-2 font-medium text-slate-700">
+                  <span className="w-2 h-2 rounded-full bg-emerald-600" />
+                  <span>Tertanda: <strong>{content.superadmin_name}</strong></span>
+                </div>
+
+                {content.superadmin_office_hours && (
+                  <div className="flex items-center gap-1.5 text-slate-500 text-[11px]">
+                    <Clock size={13} className="text-emerald-600" />
+                    <span>Jam Layanan CS: {content.superadmin_office_hours}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* ACTIVE SUBSCRIPTION STATUS BADGE FOR THIS TENANT (IF SUBDOMAIN) */}
+          {tenant && (
+            <div className="max-w-4xl mx-auto bg-white border border-slate-200 rounded-3xl p-6 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
+              <div className="flex items-center gap-4">
+                <div className="w-[52px] h-[52px] rounded-2xl bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center justify-center shadow-sm shrink-0">
+                  <Award size={26} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                      Status Langganan Institusi:
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      {tenant.subscription_status === 'active' ? 'Aktif' : tenant.subscription_status}
+                    </span>
+                  </div>
+                  <h3 className="text-xl font-black text-slate-900 mt-0.5">
+                    {tenant.current_plan?.name || 'Paket Standar Tahfidz'}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1 flex items-center gap-3">
+                    <span>
+                      Masa Aktif: <strong className="text-emerald-700 font-bold">{tenant.days_remaining !== undefined ? `${tenant.days_remaining} Hari Tersisa` : 'Aktif'}</strong>
+                    </span>
+                    <span>•</span>
+                    <span>
+                      Kapasitas Santri: <strong className="text-slate-800">{tenant.stats?.total_santri || 0}</strong> / {tenant.current_plan?.max_santri || 10} Terdaftar
+                    </span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 w-full md:w-auto justify-end">
+                <Link
+                  href="/login"
+                  className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-colors flex items-center gap-1.5"
+                >
+                  <LayoutDashboard size={15} />
+                  <span>Akses Dashboard</span>
+                </Link>
+
+                <button
+                  onClick={() => {
+                    const nextPkg = packages.find((p) => p.id !== tenant.current_plan?.id) || packages[packages.length - 1];
+                    handleOpenUpgradeModal(nextPkg);
+                  }}
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Zap size={15} />
+                  <span>Konsultasi / Upgrade Paket</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* QUICK HERO ACTIONS */}
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
             <button
-              onClick={() => setActiveMainTab('quran')}
-              className={`px-5 py-3 rounded-2xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all cursor-pointer ${
-                activeMainTab === 'quran'
-                  ? 'bg-emerald-600 text-white shadow-xl shadow-emerald-600/30'
-                  : 'bg-slate-900 border border-slate-800 text-slate-300 hover:bg-slate-800'
-              }`}
+              onClick={() => setActiveMainTab('paket')}
+              className="px-5 py-3 rounded-xl text-xs sm:text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm flex items-center gap-2 transition-all cursor-pointer"
             >
-              <BookOpen size={16} />
-              <span>Baca Al-Qur'an 30 Juz (Gratis)</span>
+              <Award size={17} />
+              <span>Lihat Informasi Paket & Fitur</span>
             </button>
+
+            {content.superadmin_phone && (
+              <a
+                href={getWhatsAppUpgradeUrl()}
+                target="_blank"
+                rel="noreferrer"
+                className="px-5 py-3 rounded-xl text-xs sm:text-sm font-bold bg-white border border-slate-300 hover:border-emerald-600 text-slate-800 hover:text-emerald-700 flex items-center gap-2 transition-all shadow-sm"
+              >
+                <Phone size={17} className="text-emerald-600" />
+                <span>Hubungi Superadmin (WhatsApp)</span>
+              </a>
+            )}
+
             <button
-              onClick={() => setActiveMainTab('kajian')}
-              className={`px-5 py-3 rounded-2xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all cursor-pointer ${
-                activeMainTab === 'kajian'
-                  ? 'bg-emerald-600 text-white shadow-xl shadow-emerald-600/30'
-                  : 'bg-slate-900 border border-slate-800 text-slate-300 hover:bg-slate-800'
-              }`}
+              onClick={() => setActiveMainTab('quran')}
+              className="px-5 py-3 rounded-xl text-xs sm:text-sm font-bold bg-white border border-slate-300 hover:border-slate-400 text-slate-700 hover:text-slate-900 flex items-center gap-2 transition-all shadow-sm cursor-pointer"
             >
-              <Video size={16} />
-              <span>Kajian Video & Tahsin (Gratis)</span>
+              <BookOpen size={17} />
+              <span>Mushaf 30 Juz (Gratis)</span>
             </button>
-            <Link
-              href="/register"
-              className="px-5 py-3 rounded-2xl text-xs sm:text-sm font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 flex items-center gap-2 transition-all shadow-xl shadow-amber-500/20"
-            >
-              <Building size={16} />
-              <span>Daftarkan Lembaga Baru</span>
-            </Link>
           </div>
         </div>
       </section>
 
-      {/* MAIN CONTENT BASED ON SELECTED TAB */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-16">
-        {/* TAB 1: AL-QUR'AN 30 JUZ (GRATIS) */}
-        {activeMainTab === 'quran' && (
-          <section className="space-y-6">
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 uppercase tracking-wider">
-                  <BookOpen size={14} />
-                  <span>Mushaf Digital 30 Juz</span>
+      {/* MAIN CONTAINER */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-16">
+
+        {/* SECTION 1: INFORMASI PAKET & FITUR LENGKAP YANG TERSEDIA */}
+        {(activeMainTab === 'beranda' || activeMainTab === 'paket') && content.show_packages && (
+          <section id="paket-section" className="space-y-8 scroll-mt-24">
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 border-b border-slate-200 pb-6">
+              <div className="space-y-2 max-w-2xl">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold">
+                  <Award size={14} className="text-emerald-600" />
+                  <span>Pilihan Paket Langganan Lembaga & Institusi</span>
                 </div>
-                <h2 className="text-2xl font-black text-white mt-1">
-                  Daftar 114 Surah Al-Qur'an
+                <h2 className="text-2xl sm:text-3xl font-black text-slate-900">
+                  Informasi Paket yang Tersedia & Fitur-Fiturnya
                 </h2>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Klik pada surah untuk membaca ayat lengkap dengan terjemahan dan audio murottal
+                <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                  Pilih paket yang paling sesuai dengan kebutuhan pondok pesantren, sekolah, rumah tahfidz, atau halaqah Anda.
+                  Semua paket terintegrasi langsung dengan fitur mutaba'ah hafalan dan manajemen santri.
                 </p>
               </div>
 
-              {/* Search & Filter */}
-              <div className="flex flex-col sm:flex-row gap-2.5">
-                <div className="relative min-w-[260px]">
-                  <Search className="absolute left-3.5 top-3 text-slate-500" size={16} />
-                  <input
-                    type="text"
-                    placeholder="Cari surah (misal: Yasin, Al-Kahf)..."
-                    value={searchSurah}
-                    onChange={(e) => setSearchSurah(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-emerald-500"
-                  />
-                </div>
-
-                <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs">
-                  <button
-                    onClick={() => setFilterJuz('all')}
-                    className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
-                      filterJuz === 'all' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    Semua (114)
-                  </button>
-                  <button
-                    onClick={() => setFilterJuz('juz30')}
-                    className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
-                      filterJuz === 'juz30' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    Juz 'Amma
-                  </button>
-                  <button
-                    onClick={() => setFilterJuz('pilihan')}
-                    className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
-                      filterJuz === 'pilihan' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    Surah Pilihan
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Grid of Surah Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-              {filteredSurahs.map((surah) => (
-                <div
-                  key={surah.number}
-                  onClick={() => handleOpenSurah(surah)}
-                  className="p-4 rounded-2xl bg-slate-900/70 border border-slate-800/90 hover:border-emerald-500/60 hover:bg-slate-900 transition-all cursor-pointer group flex items-center justify-between gap-3 shadow-xs hover:shadow-lg hover:shadow-emerald-950/40"
+              {content.superadmin_phone && (
+                <a
+                  href={getWhatsAppUpgradeUrl()}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-4 py-2.5 rounded-xl bg-white border border-slate-300 hover:border-emerald-600 text-emerald-700 hover:text-emerald-800 text-xs font-bold flex items-center gap-2 transition-all shadow-sm shrink-0"
                 >
-                  <div className="flex items-center gap-3.5 min-w-0">
-                    {/* Number Badge */}
-                    <div className="w-10 h-10 rounded-xl bg-slate-800 group-hover:bg-emerald-600/20 text-emerald-400 font-bold text-xs flex items-center justify-center shrink-0 border border-slate-700/80 group-hover:border-emerald-500/40 transition-colors">
-                      {surah.number}
-                    </div>
-
-                    {/* Surah Names */}
-                    <div className="min-w-0">
-                      <div className="font-bold text-sm text-white group-hover:text-emerald-300 transition-colors truncate">
-                        {surah.name}
-                      </div>
-                      <div className="text-[11px] text-slate-400 truncate">
-                        {surah.translation} • {surah.numberOfAyahs} Ayat
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Arabic Script & Revelation */}
-                  <div className="text-right shrink-0">
-                    <div className="font-serif text-lg font-bold text-emerald-400/90">
-                      {surah.arabic}
-                    </div>
-                    <span className="text-[10px] text-slate-500 font-medium">
-                      Juz {surah.juz} • {surah.revelation}
-                    </span>
-                  </div>
-                </div>
-              ))}
+                  <MessageCircle size={15} />
+                  <span>Konsultasi Paket Khusus</span>
+                </a>
+              )}
             </div>
 
-            {filteredSurahs.length === 0 && (
-              <div className="p-12 text-center bg-slate-900/50 rounded-3xl border border-slate-800">
-                <BookOpen size={40} className="mx-auto text-slate-600 mb-2" />
-                <p className="text-sm font-bold text-slate-300">Surah tidak ditemukan</p>
-                <p className="text-xs text-slate-500 mt-1">Coba gunakan nama surah atau nomor surah lainnya.</p>
-              </div>
-            )}
-          </section>
-        )}
-
-        {/* TAB 2: KAJIAN & TAHSIN VIDEO (GRATIS) */}
-        {activeMainTab === 'kajian' && (
-          <section className="space-y-6">
-            <div>
-              <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 uppercase tracking-wider">
-                <Video size={14} />
-                <span>Video Pembelajaran Terbuka</span>
-              </div>
-              <h2 className="text-2xl font-black text-white mt-1">
-                Kajian & Modul Tahsin Al-Qur'an
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Dengarkan dan pelajari materi bimbingan tajwid serta metode menghafal Al-Qur'an secara gratis
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {FREE_MATERIALS.map((mat) => (
-                <div
-                  key={mat.id}
-                  className="rounded-3xl bg-slate-900/80 border border-slate-800 overflow-hidden flex flex-col justify-between hover:border-emerald-500/50 transition-all shadow-md group"
-                >
-                  <div className="p-6 space-y-3">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="px-3 py-1 rounded-full font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                        {mat.category}
-                      </span>
-                      <span className="text-slate-400 text-[11px]">⏱️ {mat.duration}</span>
-                    </div>
-
-                    <h3 className="text-lg font-bold text-white group-hover:text-emerald-300 transition-colors">
-                      {mat.title}
-                    </h3>
-
-                    <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">
-                      {mat.description}
-                    </p>
-
-                    <div className="text-xs font-semibold text-slate-300 pt-1">
-                      Pembicara: <strong className="text-slate-200">{mat.speaker}</strong>
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-slate-950/60 border-t border-slate-800/80 flex items-center justify-between">
-                    <button
-                      onClick={() => {
-                        setSelectedVideo(mat);
-                        setIsVideoModalOpen(true);
-                      }}
-                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer"
-                    >
-                      <Play size={14} fill="currentColor" />
-                      <span>Tonton Kajian Sekarang</span>
-                    </button>
-                    <span className="text-[11px] text-slate-500">Akses Terbuka</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* TAB 3 / SECTION: PAKET LANGGANAN LEMBAGA */}
-        {activeMainTab === 'paket' && (
-          <section className="space-y-6">
-            <div className="text-center max-w-2xl mx-auto space-y-2">
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 text-xs font-bold">
-                <Sparkles size={12} />
-                <span>Pilihan Paket SaaS Tahfidz</span>
-              </div>
-              <h2 className="text-2xl sm:text-3xl font-black text-white">
-                Biaya Berlangganan Terjangkau untuk Pesantren & Sekolah
-              </h2>
-              <p className="text-xs sm:text-sm text-slate-400">
-                Pendaftaran dapat dilakukan secara mandiri oleh pihak lembaga, diverifikasi melalui transfer manual WhatsApp oleh Super Admin.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
+            {/* Packages Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {packages.map((pkg) => {
-                const isPerUser = pkg.features?.pricing_type === 'per_user';
-                const duration = pkg.duration_months || pkg.features?.duration_months || 1;
-                const extraPrice = pkg.extra_price_per_user !== undefined ? Number(pkg.extra_price_per_user) : Number(pkg.features?.extra_price_per_user || 0);
-                const isAnnual = duration === 12;
-                const is6Months = duration === 6;
-
-                const durationBadge = isPerUser
-                  ? 'Custom (Per Santri)'
-                  : isAnnual
-                  ? 'Paket 1 Tahun (Tahunan)'
-                  : is6Months
-                  ? 'Paket 6 Bulan'
-                  : 'Paket Bulanan (1 Bulan)';
-
-                const periodSubtitle = isPerUser
-                  ? 'per santri / bulan (dinamis)'
-                  : isAnnual
-                  ? 'per 1 tahun per institusi'
-                  : is6Months
-                  ? 'per 6 bulan per institusi'
-                  : 'per bulan per institusi';
+                const isCurrent = tenant?.current_plan?.id === pkg.id;
+                const features = pkg.features || {};
+                const isAnnual = pkg.duration_months === 12;
+                const is6Months = pkg.duration_months === 6;
 
                 return (
                   <div
                     key={pkg.id}
-                    className={`rounded-3xl p-6 sm:p-8 flex flex-col justify-between transition-all relative ${
-                      isAnnual
-                        ? 'bg-slate-900 border-2 border-emerald-500 shadow-2xl shadow-emerald-950/60'
-                        : isPerUser
-                        ? 'bg-slate-900/90 border-2 border-amber-500/60'
-                        : is6Months
-                        ? 'bg-slate-900/80 border border-teal-500/50'
-                        : 'bg-slate-900/70 border border-slate-800'
-                    }`}
+                    className={`rounded-3xl p-6 sm:p-7 flex flex-col justify-between transition-all relative ${isCurrent
+                      ? 'bg-emerald-50/40 border-2 border-emerald-600 shadow-sm'
+                      : isAnnual
+                        ? 'bg-white border-2 border-emerald-500 shadow-sm'
+                        : 'bg-white border border-slate-200/90 shadow-sm hover:shadow-md'
+                      }`}
                   >
-                    {isAnnual ? (
-                      <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-[11px] font-black uppercase tracking-wider px-4 py-1 rounded-full shadow-md">
-                        Paling Hemat (1 Tahun)
+                    {/* Top Ribbon */}
+                    {isCurrent ? (
+                      <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-emerald-700 text-white text-[10px] font-bold uppercase tracking-wider px-3.5 py-1 rounded-full shadow-sm flex items-center gap-1">
+                        <CheckCircle2 size={12} /> Paket Anda Saat Ini
+                      </div>
+                    ) : isAnnual ? (
+                      <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 inline-flex items-center gap-1 bg-brand text-white text-[10px] font-bold uppercase tracking-wider px-3.5 py-1 rounded-full shadow-sm">
+                        <Flame size={12} /> Paling Hemat (1 Tahun)
                       </div>
                     ) : is6Months ? (
-                      <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-gradient-to-r from-teal-600 to-cyan-600 text-white text-[11px] font-black uppercase tracking-wider px-4 py-1 rounded-full shadow-md">
-                        Pilihan Populer (6 Bulan)
-                      </div>
-                    ) : isPerUser ? (
-                      <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 text-[11px] font-black uppercase tracking-wider px-4 py-1 rounded-full shadow-md">
-                        Custom Full Benefit
+                      <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-slate-100 border border-slate-300 text-slate-700 text-[10px] font-bold uppercase tracking-wider px-3 py-0.5 rounded-full shadow-sm">
+                        Pilihan 6 Bulan
                       </div>
                     ) : null}
 
                     <div className="space-y-4">
                       <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-mono font-bold uppercase text-emerald-400">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
                             {pkg.code}
                           </span>
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300">
-                            {durationBadge}
+                          <span className="text-[11px] font-semibold text-slate-500">
+                            {pkg.duration_months} Bulan
                           </span>
                         </div>
-                        <h3 className="text-xl font-bold text-white mt-1">{pkg.name}</h3>
+                        <h3 className="text-xl font-black text-slate-900 mt-2 leading-tight">
+                          {pkg.name}
+                        </h3>
                       </div>
 
+                      {/* Pricing */}
                       <div>
-                        <div className="text-3xl font-black text-amber-400">
+                        <div className="text-3xl font-black text-slate-900">
                           {formatCurrency(Number(pkg.price))}
                         </div>
-                        <p className="text-xs text-slate-400 mt-1">
-                          {periodSubtitle}
+                        <p className="text-xs text-slate-500 mt-1">
+                          {pkg.duration_months === 12
+                            ? 'per institusi / 1 tahun'
+                            : pkg.duration_months === 6
+                              ? 'per institusi / 6 bulan'
+                              : 'per institusi / bulan'}
                         </p>
                       </div>
 
-                      {/* Quota & Extra Price info */}
-                      <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-2xl text-xs space-y-1.5">
-                        <div className="flex items-center justify-between text-slate-300">
-                          <span>Kapasitas Kuota Dasar:</span>
-                          <strong className="text-white">
-                            {pkg.max_santri > 99999 || pkg.max_santri === 0 ? 'Tanpa Batas' : `${pkg.max_santri} Santri`}
+                      {/* Capacity Box */}
+                      <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl text-xs space-y-1.5">
+                        <div className="flex items-center justify-between text-slate-600">
+                          <span>Kapasitas Santri:</span>
+                          <strong className="text-slate-900 font-bold">
+                            {pkg.max_santri > 9999 || pkg.max_santri === 0 ? 'Tanpa Batas' : `${pkg.max_santri} Santri`}
                           </strong>
                         </div>
-                        {!isPerUser && extraPrice > 0 && (
-                          <div className="flex items-center justify-between text-slate-400 pt-1.5 border-t border-slate-800/80 text-[11px]">
-                            <span>Biaya Santri Tambahan:</span>
-                            <strong className="text-emerald-400 font-bold">
-                              +{formatCurrency(extraPrice)} / santri
+                        {pkg.extra_price_per_user > 0 && (
+                          <div className="flex items-center justify-between text-slate-500 pt-1.5 border-t border-slate-200/80 text-[11px]">
+                            <span>Santri Tambahan:</span>
+                            <strong className="text-emerald-700 font-bold">
+                              +{formatCurrency(pkg.extra_price_per_user)} / santri
                             </strong>
                           </div>
                         )}
                       </div>
 
-                      <div className="space-y-2 pt-2 border-t border-slate-800/80 text-xs text-slate-300">
-                        <div className="flex items-center gap-2">
-                          <Check size={14} className="text-emerald-400 shrink-0" />
-                          <span>Pencatatan Setoran Ziyadah & Murojaah Cepat</span>
+                      {/* Feature Checklist */}
+                      <div className="space-y-2.5 pt-2 text-xs border-t border-slate-100">
+                        <div className="font-bold text-[11px] uppercase tracking-wider text-slate-500 mb-2">
+                          Fitur Unggulan Paket:
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Check size={14} className="text-emerald-400 shrink-0" />
-                          <span>LMS & Audio Koreksi Feedback Guru</span>
+
+                        <div className="flex items-start gap-2">
+                          <Check size={15} className="text-emerald-600 shrink-0 mt-0.5" />
+                          <span className="text-slate-700 font-medium">Setoran Hafalan Ziyadah & Muroja'ah</span>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Check size={14} className="text-emerald-400 shrink-0" />
-                          <span>Pohon Hafalan 30 Juz & Raport Digital</span>
+
+                        <div className="flex items-start gap-2">
+                          <Check size={15} className="text-emerald-600 shrink-0 mt-0.5" />
+                          <span className="text-slate-700 font-medium">Penilaian Cepat Tap (Mutqin, Lancar, Kurang)</span>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Check size={14} className="text-emerald-400 shrink-0" />
-                          <span>Portal Wali Santri & Notifikasi WA Otomatis</span>
+
+                        <div className="flex items-start gap-2">
+                          {features.tahsin_audio ? (
+                            <Check size={15} className="text-emerald-600 shrink-0 mt-0.5" />
+                          ) : (
+                            <X size={15} className="text-slate-300 shrink-0 mt-0.5" />
+                          )}
+                          <span className={features.tahsin_audio ? 'text-slate-700 font-medium' : 'text-slate-400 line-through'}>
+                            Voice Note Audio Tahsin & Koreksi Guru
+                          </span>
+                        </div>
+
+                        <div className="flex items-start gap-2">
+                          {features.lms ? (
+                            <Check size={15} className="text-emerald-600 shrink-0 mt-0.5" />
+                          ) : (
+                            <X size={15} className="text-slate-300 shrink-0 mt-0.5" />
+                          )}
+                          <span className={features.lms ? 'text-slate-700 font-medium' : 'text-slate-400 line-through'}>
+                            Modul LMS Video & Live Google Meet
+                          </span>
+                        </div>
+
+                        <div className="flex items-start gap-2">
+                          {features.certificates ? (
+                            <Check size={15} className="text-emerald-600 shrink-0 mt-0.5" />
+                          ) : (
+                            <X size={15} className="text-slate-300 shrink-0 mt-0.5" />
+                          )}
+                          <span className={features.certificates ? 'text-slate-700 font-medium' : 'text-slate-400 line-through'}>
+                            E-Sertifikat Tasmi per Juz (PDF Barcode)
+                          </span>
+                        </div>
+
+                        <div className="flex items-start gap-2">
+                          {features.badges ? (
+                            <Check size={15} className="text-emerald-600 shrink-0 mt-0.5" />
+                          ) : (
+                            <X size={15} className="text-slate-300 shrink-0 mt-0.5" />
+                          )}
+                          <span className={features.badges ? 'text-slate-700 font-medium' : 'text-slate-400 line-through'}>
+                            Gamifikasi Bintang & Lencana Prestasi
+                          </span>
+                        </div>
+
+                        <div className="flex items-start gap-2">
+                          {features.chat ? (
+                            <Check size={15} className="text-emerald-600 shrink-0 mt-0.5" />
+                          ) : (
+                            <X size={15} className="text-slate-300 shrink-0 mt-0.5" />
+                          )}
+                          <span className={features.chat ? 'text-slate-700 font-medium' : 'text-slate-400 line-through'}>
+                            Chat & Komunikasi Grup Halaqah
+                          </span>
                         </div>
                       </div>
                     </div>
 
+                    {/* Action Button */}
                     <div className="pt-6">
-                      <Link
-                        href={`/register?plan=${pkg.code}`}
-                        className={`w-full py-3.5 px-4 rounded-xl text-center text-xs font-bold block transition-all shadow-md ${
-                          isAnnual
-                            ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30'
-                            : isPerUser
-                            ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20 font-black'
-                            : 'bg-slate-800 hover:bg-slate-700 text-white'
-                        }`}
-                      >
-                        Pilih Paket Ini & Daftar
-                      </Link>
+                      {isCurrent ? (
+                        <button
+                          disabled
+                          className="w-full py-3 px-4 rounded-xl text-center text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 cursor-default flex items-center justify-center gap-1.5"
+                        >
+                          <CheckCircle2 size={16} /> Sedang Aktif di Institusi Anda
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleOpenUpgradeModal(pkg)}
+                          className={`w-full py-3 px-4 rounded-xl text-center text-xs font-bold block transition-all shadow-sm cursor-pointer ${isAnnual
+                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                            : 'bg-slate-900 hover:bg-slate-800 text-white'
+                            }`}
+                        >
+                          Pilih & Upgrade ke Paket Ini →
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -670,240 +790,162 @@ export default function HomePage() {
           </section>
         )}
 
-        {/* SECTION: FITUR LEMBAGA YANG DIKUNCI / BERLANGGANAN */}
-        <section className="rounded-3xl bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border border-slate-800 p-8 sm:p-12 space-y-8">
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 border-b border-slate-800 pb-8">
-            <div className="space-y-2 max-w-xl">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 text-xs font-bold">
-                <Lock size={12} />
-                <span>Fitur Khusus Lembaga Mitra Berlangganan</span>
+        {/* SECTION 2: KONTAK RESMI SUPERADMIN KEPADA PELANGGAN */}
+        {(activeMainTab === 'beranda' || activeMainTab === 'paket') && content.show_contact && (
+          <section className="bg-white border border-slate-200/80 rounded-3xl p-8 sm:p-10 space-y-6 shadow-sm">
+            <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 border-b border-slate-100 pb-6">
+              <div className="space-y-2">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold">
+                  <Phone size={13} className="text-emerald-600" />
+                  <span>Layanan Bantuan Resmi & Kemitraan Pusat</span>
+                </div>
+                <h3 className="text-2xl font-black text-slate-900">
+                  Kontak Superadmin Kepada Pelanggan
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-600 max-w-2xl leading-relaxed">
+                  Apakah Anda membutuhkan bantuan teknis konfigurasi santri, konsultasi kapasitas kuota, atau konfirmasi bukti transfer pembayaran? Hubungi tim Superadmin resmi kami secara langsung.
+                </p>
               </div>
-              <h2 className="text-2xl sm:text-3xl font-black text-white">
-                Ekosistem Manajemen Tahfidz Terpadu untuk Pesantren Anda
-              </h2>
-              <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
-                Fitur di bawah ini hanya dapat diakses oleh Ustadz, Santri, dan Wali Santri setelah lembaga terdaftar dan disetujui Super Admin.
-              </p>
+
+              {content.superadmin_phone && (
+                <a
+                  href={`https://wa.me/${content.superadmin_phone.replace(/[^0-9]/g, '')}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-6 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm flex items-center gap-2 transition-all shrink-0"
+                >
+                  <MessageCircle size={17} />
+                  <span>Chat WhatsApp Superadmin</span>
+                </a>
+              )}
             </div>
 
-            <Link
-              href="/register"
-              className="px-6 py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-xl shadow-emerald-600/30 flex items-center gap-2 transition-all shrink-0 self-start md:self-auto"
-            >
-              <span>Daftarkan Lembaga Anda</span>
-              <ArrowRight size={16} />
-            </Link>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="p-5 rounded-2xl bg-slate-950/70 border border-slate-800/80 space-y-2.5">
-              <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold">
-                <BookOpen size={18} />
+            {/* Contact Detail Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+              <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                  <Users size={18} />
+                </div>
+                <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Tim Pengelola Pusat</div>
+                <div className="font-bold text-sm text-slate-900">{content.superadmin_name}</div>
               </div>
-              <div className="font-bold text-sm text-white">Input Setoran Ziyadah & Murojaah</div>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Ustadz mencatat kelancaran setoran santri secara realtime langsung dari smartphone.
-              </p>
-              <div className="text-[10px] font-bold text-amber-400 flex items-center gap-1 pt-1">
-                <Lock size={10} /> Perlu Akun Lembaga
+
+              <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                  <Phone size={18} />
+                </div>
+                <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Narahubung WhatsApp</div>
+                <div className="font-bold text-sm text-emerald-700 font-mono">+{content.superadmin_phone}</div>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
+                  <Mail size={18} />
+                </div>
+                <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Email Dukungan</div>
+                <div className="font-bold text-sm text-slate-800">{content.superadmin_email}</div>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1.5">
+                <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
+                  <Clock size={18} />
+                </div>
+                <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Jam Operasional CS</div>
+                <div className="font-bold text-sm text-slate-800">{content.superadmin_office_hours}</div>
               </div>
             </div>
+          </section>
+        )}
 
-            <div className="p-5 rounded-2xl bg-slate-950/70 border border-slate-800/80 space-y-2.5">
-              <div className="w-9 h-9 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center font-bold">
-                <Volume2 size={18} />
-              </div>
-              <div className="font-bold text-sm text-white">Review Audio Tahsin Guru</div>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Santri mengirimkan rekaman voice note, asatidz memberi koreksi tajwid dan skor kefasihan.
-              </p>
-              <div className="text-[10px] font-bold text-amber-400 flex items-center gap-1 pt-1">
-                <Lock size={10} /> Perlu Akun Lembaga
-              </div>
-            </div>
+        <PublicQuranSection visible={activeMainTab === 'beranda' || activeMainTab === 'quran'} />
 
-            <div className="p-5 rounded-2xl bg-slate-950/70 border border-slate-800/80 space-y-2.5">
-              <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center font-bold">
-                <Award size={18} />
-              </div>
-              <div className="font-bold text-sm text-white">E-Sertifikat Tasmi per Juz</div>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Terbitkan sertifikat kelulusan juz dengan nomor seri unik dan format PDF siap cetak.
-              </p>
-              <div className="text-[10px] font-bold text-amber-400 flex items-center gap-1 pt-1">
-                <Lock size={10} /> Perlu Akun Lembaga
-              </div>
-            </div>
+        <PublicKajianSection
+          visible={activeMainTab === 'beranda' || activeMainTab === 'kajian'}
+          materials={FREE_MATERIALS}
+          onSelect={(material) => {
+            setSelectedVideo(material);
+            setIsVideoModalOpen(true);
+          }}
+        />
 
-            <div className="p-5 rounded-2xl bg-slate-950/70 border border-slate-800/80 space-y-2.5">
-              <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center font-bold">
-                <Users size={18} />
-              </div>
-              <div className="font-bold text-sm text-white">Rapor & Portal Wali Santri</div>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Orang tua memantau perkembangan pohon hafalan 30 juz dan absensi anak dari rumah.
-              </p>
-              <div className="text-[10px] font-bold text-amber-400 flex items-center gap-1 pt-1">
-                <Lock size={10} /> Perlu Akun Lembaga
-              </div>
-            </div>
-          </div>
-        </section>
       </main>
 
       {/* FOOTER */}
-      <footer className="border-t border-slate-800/80 bg-slate-950 py-10 mt-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-slate-300">SaaS Tahfidz & Quran Gateway</span>
-            <span>• Platform Digital Multi-Tenant Pendidikan Islam</span>
+      <footer className="border-t border-slate-200 bg-white py-10 text-xs text-slate-500">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-6">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-emerald-600 flex items-center justify-center text-white font-bold text-sm">
+              <BookOpen size={18} />
+            </div>
+            <div>
+              <p className="font-bold text-slate-900">{tenant ? tenant.name : 'Quriva'}</p>
+              <p className="text-[11px] text-slate-400">
+                {tenant ? `Subdomain: ${getTenantHost(tenant.subdomain)}` : 'Sistem Manajemen & Monitoring Hafalan Al-Qur\'an'}
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-4">
-            <Link href="/register" className="hover:text-emerald-400 transition-colors">
-              Pendaftaran Lembaga
-            </Link>
-            <Link href="/login" className="hover:text-emerald-400 transition-colors">
-              Masuk Dashboard
-            </Link>
-            <a
-              href="https://wa.me/6281234567890"
-              target="_blank"
-              rel="noreferrer"
-              className="text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1"
-            >
-              <MessageCircle size={14} />
-              <span>Bantuan WhatsApp</span>
-            </a>
+
+          <div className="flex items-center gap-6 text-[11px]">
+            <Link href="/login" className="hover:text-emerald-700 transition-colors font-medium">Masuk Akun</Link>
+            <Link href="/register" className="hover:text-emerald-700 transition-colors font-medium">Daftar Lembaga Baru</Link>
+            {content.superadmin_phone && (
+              <a
+                href={`https://wa.me/${content.superadmin_phone.replace(/[^0-9]/g, '')}`}
+                target="_blank"
+                rel="noreferrer"
+                className="hover:text-emerald-700 transition-colors font-medium"
+              >
+                Kontak Superadmin
+              </a>
+            )}
+          </div>
+
+          <div className="text-[11px] text-slate-400">
+            © 2026 Quriva. Hak Cipta Dilindungi Undang-Undang.
           </div>
         </div>
       </footer>
 
-      {/* MODAL: INTERACTIVE SURAH READER & AUDIO PLAYER */}
-      {isReaderOpen && selectedSurah && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-3xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            {/* Modal Header */}
-            <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/50">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-bold text-sm flex items-center justify-center">
-                  {selectedSurah.number}
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-white flex items-center gap-2">
-                    <span>Surah {selectedSurah.name}</span>
-                    <span className="text-emerald-400 font-serif text-lg font-bold">
-                      {selectedSurah.arabic}
-                    </span>
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    {selectedSurah.translation} • {selectedSurah.numberOfAyahs} Ayat • Juz {selectedSurah.juz}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                {/* Audio Button */}
-                <button
-                  onClick={toggleMurottalAudio}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
-                    isPlayingAudio
-                      ? 'bg-amber-500 text-slate-950'
-                      : 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                  }`}
-                  title="Dengarkan Murottal Syaikh Misyari Rasyid"
-                >
-                  {isPlayingAudio ? <Pause size={14} /> : <Play size={14} fill="currentColor" />}
-                  <span>{isPlayingAudio ? 'Jeda Audio' : 'Putar Murottal'}</span>
-                </button>
-
-                <button
-                  onClick={closeSurahReader}
-                  className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-            </div>
-
-            {/* Bismillah Header (except Surah At-Taubah #9) */}
-            {selectedSurah.number !== 9 && (
-              <div className="py-4 text-center border-b border-slate-800/60 bg-slate-950/30">
-                <div className="font-serif text-xl sm:text-2xl text-emerald-400 font-bold tracking-wider">
-                  بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
-                </div>
-                <div className="text-[11px] text-slate-400 mt-1">
-                  Dengan nama Allah Yang Maha Pengasih, Maha Penyayang
-                </div>
-              </div>
-            )}
-
-            {/* Ayahs List */}
-            <div className="p-6 overflow-y-auto space-y-6 flex-1 divide-y divide-slate-800/60">
-              {loadingAyahs ? (
-                <div className="py-12 text-center text-xs text-slate-400 flex flex-col items-center gap-3">
-                  <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-                  <span>Memuat ayat-ayat suci Al-Qur'an...</span>
-                </div>
-              ) : (
-                surahAyahs.map((ayah) => (
-                  <div key={ayah.nomorAyat} className="pt-5 first:pt-0 space-y-3">
-                    {/* Ayah Header & Arabic Text */}
-                    <div className="flex items-start justify-between gap-4">
-                      <span className="w-7 h-7 rounded-lg bg-slate-800 text-emerald-400 text-xs font-bold flex items-center justify-center shrink-0 border border-slate-700">
-                        {ayah.nomorAyat}
-                      </span>
-                      <p className="font-serif text-xl sm:text-2xl text-right text-emerald-200/95 leading-loose flex-1 font-semibold">
-                        {ayah.teksArab}
-                      </p>
-                    </div>
-
-                    {/* Latin & Indonesian Translation */}
-                    <div className="space-y-1 pl-10 text-xs">
-                      {ayah.teksLatin && (
-                        <p className="text-emerald-400/80 italic font-medium leading-relaxed">
-                          {ayah.teksLatin}
-                        </p>
-                      )}
-                      <p className="text-slate-300 leading-relaxed">
-                        {ayah.teksIndonesia}
-                      </p>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <PublicUpgradeDialog
+        open={isUpgradeModalOpen}
+        pkg={selectedUpgradePkg}
+        tenant={tenant ? { name: tenant.name, subdomain: tenant.subdomain } : null}
+        bankTransferInfo={content.bank_transfer_info}
+        whatsappUrl={selectedUpgradePkg ? getWhatsAppUpgradeUrl(selectedUpgradePkg) : '#'}
+        onClose={() => setIsUpgradeModalOpen(false)}
+      />
 
       {/* MODAL: VIDEO KAJIAN */}
       {isVideoModalOpen && selectedVideo && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full overflow-hidden shadow-2xl space-y-4 p-6">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 max-w-3xl w-full space-y-4 shadow-2xl relative">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <div>
-                <h3 className="text-base font-bold text-white">{selectedVideo.title}</h3>
-                <p className="text-xs text-slate-400">{selectedVideo.speaker}</p>
+                <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
+                  {selectedVideo.category}
+                </span>
+                <h3 className="font-bold text-base text-slate-900">{selectedVideo.title}</h3>
+                <p className="text-xs text-slate-500">{selectedVideo.speaker}</p>
               </div>
               <button
                 onClick={() => setIsVideoModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                className="text-slate-400 hover:text-slate-600 text-xl font-bold cursor-pointer"
               >
-                <X size={20} />
+                ×
               </button>
             </div>
 
-            <div className="aspect-video w-full rounded-2xl overflow-hidden bg-black border border-slate-800">
+            <div className="aspect-video w-full rounded-2xl overflow-hidden bg-black">
               <iframe
-                className="w-full h-full"
                 src={`https://www.youtube.com/embed/${selectedVideo.youtubeId}?autoplay=1`}
                 title={selectedVideo.title}
+                className="w-full h-full"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
               />
             </div>
 
-            <p className="text-xs text-slate-400 leading-relaxed">
+            <p className="text-xs text-slate-600 leading-relaxed">
               {selectedVideo.description}
             </p>
           </div>

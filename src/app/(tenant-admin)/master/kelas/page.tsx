@@ -1,18 +1,22 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import Sidebar from '@/components/layouts/Sidebar';
-import Navbar from '@/components/layouts/Navbar';
+import AppShell from '@/components/layouts/AppShell';
 import { useAuthStore } from '@/store/useAuthStore';
 import api from '@/services/api';
-import { School, Plus, Search, Users, Trash2, AlertCircle } from 'lucide-react';
+import { safeString } from '@/lib/format';
+import ErrorState from '@/components/ui/ErrorState';
+import { School, Plus, Search, Users, Trash2, AlertCircle, X } from 'lucide-react';
 
 export default function MasterKelasPage() {
   const { user } = useAuthStore();
   const isGuru = user?.role === 'guru';
+  const isNonPesantren = user?.tenant?.institution_type === 'non_pesantren' || user?.tenant?.has_wali === false;
+  const memberLabel = user?.tenant?.member_label || (isNonPesantren ? 'Peserta' : 'Santri');
   const [classes, setClasses] = useState<any[]>([]);
   const [gurus, setGurus] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
 
   // Modal State
@@ -30,6 +34,7 @@ export default function MasterKelasPage() {
   const fetchData = async () => {
     try {
       setLoading(true);
+      setError('');
       const [classRes, guruRes] = await Promise.all([
         api.get('/classes'),
         api.get('/users?role=guru'),
@@ -38,6 +43,7 @@ export default function MasterKelasPage() {
       setGurus(guruRes.data?.data || []);
     } catch (err) {
       console.error('Failed to load class data:', err);
+      setError('Gagal memuat data kelas. Periksa koneksi Anda lalu coba lagi.');
     } finally {
       setLoading(false);
     }
@@ -76,23 +82,29 @@ export default function MasterKelasPage() {
   };
 
   const filtered = classes.filter((c) =>
-    c.name.toLowerCase().includes(search.toLowerCase())
+    safeString(c.name).toLowerCase().includes(search.toLowerCase())
   );
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
-      <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0">
-        <Navbar
+    <AppShell
           title={isGuru ? "Daftar Halaqah Belajar" : "Master Data Kelas / Halaqah"}
           subtitle={
             isGuru
-              ? "Daftar kelompok halaqah belajar santri dan pembimbing"
+              ? `Daftar kelompok halaqah belajar ${memberLabel.toLowerCase()} dan pembimbing`
               : "Kelola kelompok belajar hafalan dan penetapan ustadz pembina"
           }
-        />
+        >
 
-        <main className="p-8 space-y-6 flex-1">
+        <main className="p-4 sm:p-6 lg:p-8 space-y-6 flex-1">
+          {error && (
+            <ErrorState
+              title="Gagal memuat data"
+              description={error}
+              onRetry={fetchData}
+              className="rounded-2xl border border-slate-200 bg-white"
+            />
+          )}
+
           {/* Top action bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="relative flex-1 max-w-md">
@@ -102,7 +114,7 @@ export default function MasterKelasPage() {
                 placeholder="Cari nama halaqah / kelas..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 shadow-xs"
+                className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 shadow-sm"
               />
             </div>
 
@@ -122,7 +134,7 @@ export default function MasterKelasPage() {
             {filtered.map((c) => (
               <div
                 key={c.id}
-                className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs flex flex-col justify-between hover:shadow-md transition-shadow"
+                className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow"
               >
                 <div>
                   <div className="flex items-center justify-between mb-4">
@@ -146,7 +158,7 @@ export default function MasterKelasPage() {
                 <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between">
                   <div className="flex items-center gap-1.5 text-xs text-emerald-700 font-bold bg-emerald-50 px-3 py-1 rounded-full">
                     <Users size={13} />
-                    <span>{c.total_santri || 0} Santri Terdaftar</span>
+                    <span>{c.total_santri || 0} {memberLabel} Terdaftar</span>
                   </div>
 
                   {!isGuru && (
@@ -169,19 +181,20 @@ export default function MasterKelasPage() {
             </div>
           )}
         </main>
-      </div>
 
       {/* Modal Tambah Kelas */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-5">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="text-base font-bold text-slate-900">Tambah Kelas / Halaqah Baru</h3>
               <button
+                type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 text-lg leading-none"
+                aria-label="Tutup dialog"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-600"
               >
-                ✕
+                <X size={20} />
               </button>
             </div>
 
@@ -203,7 +216,7 @@ export default function MasterKelasPage() {
                   placeholder="Halaqah Ali bin Abi Thalib"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500"
+                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                 />
               </div>
 
@@ -214,7 +227,7 @@ export default function MasterKelasPage() {
                 <select
                   value={guruId}
                   onChange={(e) => setGuruId(e.target.value)}
-                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500 bg-white"
+                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500 bg-white"
                 >
                   <option value="">Pilih Ustadz Pembimbing</option>
                   {gurus.map((g) => (
@@ -234,7 +247,7 @@ export default function MasterKelasPage() {
                   required
                   value={academicYear}
                   onChange={(e) => setAcademicYear(e.target.value)}
-                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500"
+                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                 />
               </div>
 
@@ -258,6 +271,6 @@ export default function MasterKelasPage() {
           </div>
         </div>
       )}
-    </div>
+    </AppShell>
   );
 }

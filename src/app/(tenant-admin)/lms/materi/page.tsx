@@ -2,10 +2,12 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import Sidebar from '@/components/layouts/Sidebar';
-import Navbar from '@/components/layouts/Navbar';
+import AppShell from '@/components/layouts/AppShell';
 import api from '@/services/api';
 import { useAuthStore } from '@/store/useAuthStore';
+import { buildLmsMetadataPayload, validateQuizQuestions } from '@/lib/lms';
+import LmsUpsell from '@/components/lms/LmsUpsell';
+import LmsMaterialPreviewDialog from '@/components/lms/LmsMaterialPreviewDialog';
 import {
   BookOpen,
   Video,
@@ -22,12 +24,10 @@ import {
   AlertCircle,
   X,
   Eye,
-  Check,
   Radio,
   PlayCircle,
   Lock,
   Sparkles,
-  ArrowRight,
   ShieldCheck,
   Globe,
 } from 'lucide-react';
@@ -230,37 +230,29 @@ export default function TenantLMSMateriPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
+    if (!title.trim()) {
+      setErrorMsg('Judul materi wajib diisi.');
+      return;
+    }
     setSubmitting(true);
 
     try {
-      // Validate Quiz
-      if (type === 'quiz') {
-        for (let i = 0; i < questions.length; i++) {
-          if (!questions[i].question.trim()) {
-            throw new Error(`Pertanyaan nomor ${i + 1} belum diisi.`);
-          }
-          for (let j = 0; j < 4; j++) {
-            if (!questions[i].options[j]?.trim()) {
-              throw new Error(`Pilihan jawaban ${String.fromCharCode(65 + j)} pada soal nomor ${i + 1} belum diisi.`);
-            }
-          }
-        }
-      }
+      if (type === 'quiz') validateQuizQuestions(questions);
 
-      // Metadata packing
-      const metadataPayload = {
-        summary: summary.trim(),
-        schedule_date: scheduleDate || null,
-        duration_minutes: Number(durationMinutes) || null,
-        text_content: type === 'text' ? textContent.trim() : null,
-        questions: type === 'quiz' ? questions : null,
-      };
+      const metadataPayload = buildLmsMetadataPayload({
+        summary,
+        scheduleDate,
+        durationMinutes,
+        type,
+        textContent,
+        questions,
+      });
 
       const payload = {
         title: title.trim(),
         type,
         content_url: contentUrl.trim() || '#',
-        description: metadataPayload,
+        description: JSON.stringify(metadataPayload),
         is_global: canManageGlobalLMS ? isGlobalScope : false,
       };
 
@@ -355,158 +347,24 @@ export default function TenantLMSMateriPage() {
   };
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
-      <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0">
-        <Navbar
+    <AppShell
           title="Modul Pembelajaran & LMS Tahsin"
           subtitle="Katalog video tutorial, kuis custom, teks bacaan, podcast, dan jadwal sesi Google Meet"
-        />
+        >
 
-        <main className="p-8 space-y-6 flex-1">
+        <main className="p-4 sm:p-6 lg:p-8 space-y-6 flex-1">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-24 text-slate-400">
               <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4" />
               <p className="text-sm font-medium">Memuat katalog materi LMS...</p>
             </div>
           ) : isLocked ? (
-            <div className="max-w-4xl mx-auto bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden animate-in fade-in duration-300">
-              {/* Banner Top */}
-              <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border-b border-amber-200/60 p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-                <div className="flex items-center gap-5">
-                  <div className="w-16 h-16 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-600 shadow-inner shrink-0">
-                    <Lock size={32} />
-                  </div>
-                  <div>
-                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200 mb-2">
-                      <Sparkles size={13} className="text-amber-600" />
-                      <span>Fitur Modul Tambahan (Premium & Custom)</span>
-                    </div>
-                    <h2 className="text-2xl font-black text-slate-900 tracking-tight">
-                      Modul Pembelajaran LMS Terkunci
-                    </h2>
-                    <p className="text-sm text-slate-500 mt-1">
-                      Pesantren / Lembaga Anda saat ini terdaftar dengan{' '}
-                      <span className="font-bold text-slate-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                        {user?.package?.name || 'Paket Basic'}
-                      </span>
-                    </p>
-                  </div>
-                </div>
+            <LmsUpsell
+              packageName={user?.package?.name}
+              tenantName={user?.tenant?.name}
+              forbiddenMessage={forbiddenMessage}
+            />
 
-                <div className="shrink-0">
-                  <a
-                    href={`https://wa.me/6281234567890?text=${encodeURIComponent(
-                      `Halo Super Admin, saya dari lembaga "${user?.tenant?.name || 'Pesantren'}" ingin upgrade paket langganan untuk mengaktifkan fitur LMS Pembelajaran.`
-                    )}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-2xl shadow-md shadow-emerald-600/20 transition-all transform active:scale-95"
-                  >
-                    <span>Upgrade Paket Sekarang</span>
-                    <ArrowRight size={16} />
-                  </a>
-                </div>
-              </div>
-
-              {/* Content Explanation & Comparison */}
-              <div className="p-8 space-y-6">
-                <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200/70">
-                  <h4 className="font-bold text-slate-900 mb-2 text-base">
-                    Mengapa fitur ini tidak dapat diakses?
-                  </h4>
-                  <p className="text-sm text-slate-600 leading-relaxed">
-                    {forbiddenMessage ||
-                      `Fitur Learning Management System (LMS) seperti pembuatan video pembelajaran YouTube, kuis tajwid custom interaktif, audio podcast murottal, materi teks, serta jadwal sesi tatap muka Live Google Meet tidak termasuk dalam paket langganan Anda saat ini (${user?.package?.name || 'Paket Basic'}).`}
-                  </p>
-                </div>
-
-                {/* Comparison Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  <div className="p-6 rounded-2xl border border-slate-200/80 bg-white">
-                    <div className="flex items-center gap-2 mb-4 text-slate-700 font-bold">
-                      <div className="w-6 h-6 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500 text-xs font-black">
-                        ✕
-                      </div>
-                      <span>Paket Anda Saat Ini ({user?.package?.name || 'Paket Basic'})</span>
-                    </div>
-                    <ul className="space-y-2.5 text-xs text-slate-600">
-                      <li className="flex items-center gap-2 text-slate-700">
-                        <Check size={14} className="text-emerald-500 shrink-0" />
-                        <span>Rekap & Penilaian Setoran Hafalan Santri</span>
-                      </li>
-                      <li className="flex items-center gap-2 text-slate-700">
-                        <Check size={14} className="text-emerald-500 shrink-0" />
-                        <span>Manajemen Guru, Santri, dan Kelas Halaqah</span>
-                      </li>
-                      <li className="flex items-center gap-2 text-rose-500 font-medium">
-                        <X size={14} className="text-rose-400 shrink-0" />
-                        <span>Modul Video Tutorial YouTube Santri (Nonaktif)</span>
-                      </li>
-                      <li className="flex items-center gap-2 text-rose-500 font-medium">
-                        <X size={14} className="text-rose-400 shrink-0" />
-                        <span>Kuis Interaktif Custom Tajwid & Penilaian (Nonaktif)</span>
-                      </li>
-                      <li className="flex items-center gap-2 text-rose-500 font-medium">
-                        <X size={14} className="text-rose-400 shrink-0" />
-                        <span>Jadwal Live Google Meet Tatap Muka (Nonaktif)</span>
-                      </li>
-                      <li className="flex items-center gap-2 text-rose-500 font-medium">
-                        <X size={14} className="text-rose-400 shrink-0" />
-                        <span>Podcast & Audio Murottal Mandiri (Nonaktif)</span>
-                      </li>
-                    </ul>
-                  </div>
-
-                  <div className="p-6 rounded-2xl border-2 border-emerald-500/40 bg-emerald-50/30 relative">
-                    <div className="flex items-center gap-2 mb-4 text-emerald-800 font-bold">
-                      <div className="w-6 h-6 rounded-lg bg-emerald-600 text-white flex items-center justify-center text-xs font-black">
-                        ✓
-                      </div>
-                      <span>Paket Premium & Custom Flexi</span>
-                    </div>
-                    <ul className="space-y-2.5 text-xs text-slate-700 font-medium">
-                      <li className="flex items-center gap-2 text-emerald-800">
-                        <Check size={14} className="text-emerald-600 shrink-0" />
-                        <span>Seluruh Fitur Inti Rekap Hafalan & Kelas</span>
-                      </li>
-                      <li className="flex items-center gap-2 text-emerald-800">
-                        <Check size={14} className="text-emerald-600 shrink-0" />
-                        <span>Modul Pembelajaran Mandiri Santri Lengkap (LMS)</span>
-                      </li>
-                      <li className="flex items-center gap-2 text-emerald-800">
-                        <Check size={14} className="text-emerald-600 shrink-0" />
-                        <span>Pembuat Soal Kuis Pilihan Ganda Tajwid Otomatis</span>
-                      </li>
-                      <li className="flex items-center gap-2 text-emerald-800">
-                        <Check size={14} className="text-emerald-600 shrink-0" />
-                        <span>Integrasi Jadwal Google Meet & Zoom Tatap Muka</span>
-                      </li>
-                      <li className="flex items-center gap-2 text-emerald-800">
-                        <Check size={14} className="text-emerald-600 shrink-0" />
-                        <span>Audio / Podcast Kajian & Materi Bacaan Santri</span>
-                      </li>
-                      <li className="flex items-center gap-2 text-emerald-800">
-                        <Check size={14} className="text-emerald-600 shrink-0" />
-                        <span>Akses Interaktif Langsung di Aplikasi Mobile Santri</span>
-                      </li>
-                    </ul>
-                  </div>
-                </div>
-
-                <div className="flex flex-col sm:flex-row items-center justify-between pt-4 border-t border-slate-100 gap-4">
-                  <Link
-                    href="/dashboard"
-                    className="text-sm font-semibold text-slate-600 hover:text-slate-900 transition-colors inline-flex items-center gap-1.5"
-                  >
-                    <span>← Kembali ke Dashboard</span>
-                  </Link>
-                  <span className="text-xs text-slate-400">
-                    Ingin konsultasi paket lembaga Anda? Hubungi Super Admin kapan saja.
-                  </span>
-                </div>
-              </div>
-            </div>
           ) : (
             <>
               {/* Header Action Bar */}
@@ -520,7 +378,7 @@ export default function TenantLMSMateriPage() {
 
                 <div className="flex items-center gap-3">
                   {user?.can_create_lms_global && (
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200 text-xs font-bold shadow-xs">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200 text-xs font-bold shadow-sm">
                       <ShieldCheck size={14} className="text-purple-600" />
                       Kontributor Global Aktif
                     </span>
@@ -545,7 +403,7 @@ export default function TenantLMSMateriPage() {
 
               {/* Informational banner if Guru does not have local LMS creator permission */}
               {isGuru && !canManageLocalLMS && (
-                <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-4 flex items-center justify-between gap-4 text-xs animate-in fade-in">
+                <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-4 flex items-center justify-between gap-4 text-xs animate-fade-in motion-reduce:animate-none">
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
                       <AlertCircle size={18} />
@@ -555,8 +413,8 @@ export default function TenantLMSMateriPage() {
                       <p className="text-amber-700 mt-0.5 leading-relaxed">
                         Anda dapat menyimak dan memutar materi pembelajaran. Untuk membuat materi lokal pesantren, izin harus diaktifkan oleh <strong>Admin Pesantren</strong> di menu <em>Data Guru</em>.
                         {user?.can_create_lms_global && (
-                          <span className="block mt-1 text-purple-800 font-semibold">
-                            ✨ Anda memiliki wewenang Super Admin untuk menyusun Modul Kurikulum Global.
+                          <span className="mt-1 flex items-center gap-1 text-purple-800 font-semibold">
+                            <Sparkles size={12} /> Anda memiliki wewenang Super Admin untuk menyusun Modul Kurikulum Global.
                           </span>
                         )}
                       </p>
@@ -577,7 +435,7 @@ export default function TenantLMSMateriPage() {
                   return (
                     <div
                       key={m.id}
-                      className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-xs flex flex-col justify-between hover:shadow-md transition-all relative overflow-hidden"
+                      className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm flex flex-col justify-between hover:shadow-md transition-all relative overflow-hidden"
                     >
                       <div>
                         {/* Top Row */}
@@ -692,14 +550,14 @@ export default function TenantLMSMateriPage() {
                           <div className="flex items-center gap-1">
                             <button
                               onClick={() => openEditModal(m)}
-                              className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                              className="inline-flex h-11 w-11 items-center justify-center text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
                               title="Ubah Modul"
                             >
                               <Edit2 size={15} />
                             </button>
                             <button
                               onClick={() => handleDelete(m)}
-                              className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                              className="inline-flex h-11 w-11 items-center justify-center text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                               title="Hapus Modul"
                             >
                               <Trash2 size={15} />
@@ -724,11 +582,10 @@ export default function TenantLMSMateriPage() {
             </>
           )}
         </main>
-      </div>
 
       {/* Modal Tambah / Ubah Materi */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-100 my-8 space-y-5">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
@@ -740,8 +597,10 @@ export default function TenantLMSMateriPage() {
                 </p>
               </div>
               <button
+                type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
+                aria-label="Tutup dialog"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
               >
                 <X size={20} />
               </button>
@@ -773,7 +632,7 @@ export default function TenantLMSMateriPage() {
                       onClick={() => setIsGlobalScope(false)}
                       className={`p-2.5 rounded-xl text-left border transition-all cursor-pointer ${
                         !isGlobalScope
-                          ? 'bg-white border-purple-500 shadow-xs ring-1 ring-purple-500/20'
+                          ? 'bg-white border-purple-500 shadow-sm ring-1 ring-purple-500/20'
                           : 'bg-white/60 border-purple-200 text-slate-500 hover:bg-white'
                       } ${!canManageLocalLMS ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
@@ -786,11 +645,13 @@ export default function TenantLMSMateriPage() {
                       onClick={() => setIsGlobalScope(true)}
                       className={`p-2.5 rounded-xl text-left border transition-all cursor-pointer ${
                         isGlobalScope
-                          ? 'bg-purple-600 border-purple-600 text-white shadow-xs'
+                          ? 'bg-purple-600 border-purple-600 text-white shadow-sm'
                           : 'bg-white/60 border-purple-200 text-slate-700 hover:bg-white'
                       }`}
                     >
-                      <p className="text-xs font-bold">🌐 Global Tahsin SaaS</p>
+                      <p className="flex items-center gap-1 text-xs font-bold">
+                        <Globe size={12} /> Global Tahsin SaaS
+                      </p>
                       <p className={`text-[10px] ${isGlobalScope ? 'text-purple-100' : 'text-slate-500'}`}>
                         Disinkronkan ke seluruh pesantren
                       </p>
@@ -810,7 +671,7 @@ export default function TenantLMSMateriPage() {
                     placeholder="Contoh: Hukum Nun Sukun & Tanwin"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500"
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                   />
                 </div>
 
@@ -821,13 +682,13 @@ export default function TenantLMSMateriPage() {
                   <select
                     value={type}
                     onChange={(e) => setType(e.target.value as any)}
-                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500 bg-white font-medium"
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500 bg-white font-medium"
                   >
-                    <option value="video">🎥 Video YouTube Tutorial</option>
-                    <option value="quiz">📝 Latihan Soal / Kuis Interaktif</option>
-                    <option value="audio">🎙️ Audio / Podcast Kajian</option>
-                    <option value="text">📖 Teks / Bacaan & Panduan</option>
-                    <option value="live_meet">📅 Sesi Live Google Meet / Zoom</option>
+                    <option value="video">Video YouTube Tutorial</option>
+                    <option value="quiz">Latihan Soal / Kuis Interaktif</option>
+                    <option value="audio">Audio / Podcast Kajian</option>
+                    <option value="text">Teks / Bacaan & Panduan</option>
+                    <option value="live_meet">Sesi Live Google Meet / Zoom</option>
                   </select>
                 </div>
               </div>
@@ -842,7 +703,7 @@ export default function TenantLMSMateriPage() {
                   placeholder="Penjelasan ringkas mengenai topik materi ini..."
                   value={summary}
                   onChange={(e) => setSummary(e.target.value)}
-                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2 text-sm focus:outline-hidden focus:border-emerald-500"
+                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                 />
               </div>
 
@@ -857,7 +718,7 @@ export default function TenantLMSMateriPage() {
                     type="datetime-local"
                     value={scheduleDate}
                     onChange={(e) => setScheduleDate(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-sm focus:outline-hidden focus:border-emerald-500"
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                   />
                   <p className="text-[10px] text-slate-400 mt-1">
                     Waktu kapan materi atau sesi meet dibuka untuk wali santri.
@@ -875,7 +736,7 @@ export default function TenantLMSMateriPage() {
                     placeholder="30"
                     value={durationMinutes}
                     onChange={(e) => setDurationMinutes(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-sm focus:outline-hidden focus:border-emerald-500"
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                   />
                   <p className="text-[10px] text-slate-400 mt-1">
                     Estimasi durasi pengerjaan kuis atau panjangnya sesi belajar.
@@ -905,7 +766,7 @@ export default function TenantLMSMateriPage() {
                     }
                     value={contentUrl}
                     onChange={(e) => setContentUrl(e.target.value)}
-                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-hidden focus:border-emerald-500"
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                   />
                 </div>
               )}
@@ -921,7 +782,7 @@ export default function TenantLMSMateriPage() {
                     placeholder="Tuliskan materi pembelajaran, kaidah hukum tajwid, dalil ayat, atau adab membaca Al-Quran di sini..."
                     value={textContent}
                     onChange={(e) => setTextContent(e.target.value)}
-                    className="w-full border border-slate-300 rounded-xl p-3 text-sm focus:outline-hidden focus:border-emerald-500 font-sans leading-relaxed"
+                    className="w-full border border-slate-300 rounded-xl p-3 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500 font-sans leading-relaxed"
                   />
                 </div>
               )}
@@ -977,13 +838,13 @@ export default function TenantLMSMateriPage() {
                             placeholder={`Tuliskan pertanyaan soal #${qIdx + 1}...`}
                             value={q.question}
                             onChange={(e) => updateQuestionText(qIdx, e.target.value)}
-                            className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-medium focus:outline-hidden focus:border-emerald-500"
+                            className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                           />
                         </div>
 
                         {/* Options A, B, C, D */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {q.options.map((opt, optIdx) => {
+                          {(q.options || []).map((opt, optIdx) => {
                             const isSelectedKey = q.correctAnswer === optIdx;
                             const optionChar = String.fromCharCode(65 + optIdx);
 
@@ -999,7 +860,7 @@ export default function TenantLMSMateriPage() {
                                 <button
                                   type="button"
                                   onClick={() => setCorrectOption(qIdx, optIdx)}
-                                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 transition-colors cursor-pointer ${
+                                  className={`h-10 w-10 rounded-full flex items-center justify-center text-xs font-bold shrink-0 transition-colors cursor-pointer ${
                                     isSelectedKey
                                       ? 'bg-emerald-600 text-white'
                                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -1014,7 +875,7 @@ export default function TenantLMSMateriPage() {
                                   placeholder={`Pilihan ${optionChar}...`}
                                   value={opt}
                                   onChange={(e) => updateOptionText(qIdx, optIdx, e.target.value)}
-                                  className="w-full bg-transparent border-none text-xs focus:outline-hidden text-slate-800"
+                                  className="w-full bg-transparent border-none text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 text-slate-800"
                                 />
                                 {isSelectedKey && (
                                   <span className="text-[10px] text-emerald-700 font-bold pr-1">
@@ -1033,7 +894,7 @@ export default function TenantLMSMateriPage() {
                             placeholder="Pembahasan / Alasan jawaban benar (Opsional)..."
                             value={q.explanation || ''}
                             onChange={(e) => updateExplanation(qIdx, e.target.value)}
-                            className="w-full bg-white/70 border border-slate-200 rounded-xl px-3 py-1.5 text-[11px] text-slate-600 focus:outline-hidden focus:border-emerald-500"
+                            className="w-full bg-white/70 border border-slate-200 rounded-xl px-3 py-1.5 text-[11px] text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 focus:border-emerald-500"
                           />
                         </div>
                       </div>
@@ -1063,162 +924,15 @@ export default function TenantLMSMateriPage() {
         </div>
       )}
 
-      {/* Modal Preview Kuis / Teks */}
-      {previewItem && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-slate-100 my-8 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800">
-                  {previewItem.type === 'quiz' ? 'Preview Kuis Interaktif' : 'Bacaan Teks Materi'}
-                </span>
-                <h3 className="text-base font-bold text-slate-900 mt-1">{previewItem.title}</h3>
-                <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
-                  <span>Dibuat oleh: <strong className="text-slate-700 font-semibold">{previewItem.author_name || (previewItem.is_global ? 'Super Administrator' : 'Pengajar')}</strong></span>
-                  <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                    {previewItem.creator_role || (previewItem.is_global ? 'Pusat' : 'Institusi')}
-                  </span>
-                </div>
-              </div>
-              <button
-                onClick={() => setPreviewItem(null)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
-              >
-                <X size={20} />
-              </button>
-            </div>
+      <LmsMaterialPreviewDialog
+        material={previewItem}
+        activeQuizIndex={activeQuizIndex}
+        selectedAnswers={selectedQuizAnswers}
+        onSelectAnswer={(index, option) => setSelectedQuizAnswers({ ...selectedQuizAnswers, [index]: option })}
+        onQuizIndexChange={setActiveQuizIndex}
+        onClose={() => setPreviewItem(null)}
+      />
 
-            {/* Preview Quiz */}
-            {previewItem.type === 'quiz' && (
-              <div className="space-y-4">
-                {previewItem.metadata?.questions && previewItem.metadata.questions.length > 0 ? (
-                  <div>
-                    {/* Quiz Navigator */}
-                    <div className="flex items-center justify-between text-xs text-slate-500 mb-3">
-                      <span>
-                        Soal {activeQuizIndex + 1} dari {previewItem.metadata.questions.length}
-                      </span>
-                      {previewItem.metadata.duration_minutes && (
-                        <span className="font-semibold text-amber-700">
-                          ⏱️ Durasi: {previewItem.metadata.duration_minutes} Menit
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Question Card */}
-                    <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
-                      <p className="font-bold text-sm text-slate-900">
-                        {previewItem.metadata.questions[activeQuizIndex].question}
-                      </p>
-
-                      <div className="space-y-2">
-                        {previewItem.metadata.questions[activeQuizIndex].options.map(
-                          (opt, oIdx) => {
-                            const isCorrect =
-                              previewItem.metadata?.questions?.[activeQuizIndex].correctAnswer ===
-                              oIdx;
-                            const isChosen = selectedQuizAnswers[activeQuizIndex] === oIdx;
-
-                            return (
-                              <button
-                                key={oIdx}
-                                type="button"
-                                onClick={() =>
-                                  setSelectedQuizAnswers({
-                                    ...selectedQuizAnswers,
-                                    [activeQuizIndex]: oIdx,
-                                  })
-                                }
-                                className={`w-full text-left p-3 rounded-xl border text-xs font-medium flex items-center justify-between transition-colors cursor-pointer ${
-                                  isChosen
-                                    ? isCorrect
-                                      ? 'bg-emerald-50 border-emerald-500 text-emerald-900'
-                                      : 'bg-rose-50 border-rose-300 text-rose-900'
-                                    : 'bg-white border-slate-200 hover:bg-slate-100/70'
-                                }`}
-                              >
-                                <div className="flex items-center gap-2.5">
-                                  <span className="w-6 h-6 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[11px]">
-                                    {String.fromCharCode(65 + oIdx)}
-                                  </span>
-                                  <span>{opt}</span>
-                                </div>
-                                {isChosen && isCorrect && (
-                                  <span className="text-[11px] font-bold text-emerald-700 flex items-center gap-1">
-                                    <Check size={14} /> Benar
-                                  </span>
-                                )}
-                              </button>
-                            );
-                          }
-                        )}
-                      </div>
-
-                      {/* Explanation if answered */}
-                      {selectedQuizAnswers[activeQuizIndex] !== undefined &&
-                        previewItem.metadata.questions[activeQuizIndex].explanation && (
-                          <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900">
-                            <strong>Pembahasan:</strong>{' '}
-                            {previewItem.metadata.questions[activeQuizIndex].explanation}
-                          </div>
-                        )}
-                    </div>
-
-                    {/* Pagination buttons */}
-                    <div className="flex justify-between items-center pt-2">
-                      <button
-                        type="button"
-                        disabled={activeQuizIndex === 0}
-                        onClick={() => setActiveQuizIndex((prev) => Math.max(0, prev - 1))}
-                        className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-semibold disabled:opacity-30 cursor-pointer"
-                      >
-                        ← Soal Sebelumnya
-                      </button>
-
-                      <button
-                        type="button"
-                        disabled={
-                          activeQuizIndex >= (previewItem.metadata.questions.length - 1)
-                        }
-                        onClick={() =>
-                          setActiveQuizIndex((prev) =>
-                            Math.min(
-                              (previewItem.metadata?.questions?.length || 1) - 1,
-                              prev + 1
-                            )
-                          )
-                        }
-                        className="px-3 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-semibold disabled:opacity-30 cursor-pointer"
-                      >
-                        Soal Berikutnya →
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-400">Belum ada daftar soal pada kuis ini.</p>
-                )}
-              </div>
-            )}
-
-            {/* Preview Text Content */}
-            {previewItem.type === 'text' && (
-              <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200 text-sm text-slate-800 whitespace-pre-wrap leading-relaxed max-h-96 overflow-y-auto">
-                {previewItem.metadata?.text_content || 'Belum ada isi teks materi.'}
-              </div>
-            )}
-
-            <div className="flex justify-end pt-3 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => setPreviewItem(null)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
-              >
-                Tutup
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    </AppShell>
   );
 }
