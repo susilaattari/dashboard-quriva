@@ -4,6 +4,7 @@ const STATUS_LABELS: Record<string, string> = {
   pending: 'Menunggu',
   pending_approval: 'Menunggu Persetujuan',
   approved: 'Disetujui',
+  revoked: 'Dicabut',
   rejected: 'Ditolak',
   suspended: 'Suspended',
   cancelled: 'Dibatalkan',

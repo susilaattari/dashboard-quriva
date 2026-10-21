@@ -16,10 +16,12 @@ import {
   Palette,
   LogOut,
   ShieldAlert,
+  ShieldCheck,
   HeartHandshake,
   Sparkles,
   Lock,
   X,
+  CalendarDays,
 } from 'lucide-react';
 
 interface NavItem {
@@ -53,6 +55,7 @@ export default function Sidebar({ onNavigate, onClose }: SidebarProps) {
     { href: '/superadmin/packages', label: 'Paket Langganan', icon: Package },
     { href: '/superadmin/dashboard-content', label: 'Konten Portal & Kontak', icon: Sparkles },
     { href: '/superadmin/lms-global', label: 'LMS Global Tahsin', icon: BookOpen },
+    { href: '/superadmin/persetujuan', label: 'Persetujuan Global', icon: ShieldCheck },
   ];
 
   const tenantAdminLinks: NavItem[] = [
@@ -63,7 +66,9 @@ export default function Sidebar({ onNavigate, onClose }: SidebarProps) {
       ? [{ href: '/master/wali', label: 'Data Wali Santri', icon: HeartHandshake }]
       : []),
     { href: '/master/kelas', label: 'Data Kelas / Halaqah', icon: School },
+    { href: '/jadwal', label: 'Jadwal Halaqah', icon: CalendarDays },
     { href: '/hafalan/rekap', label: 'Rekap Setoran Hafalan', icon: FileCheck },
+    { href: '/persetujuan', label: 'Persetujuan Pengguna', icon: ShieldCheck },
     { href: '/lms/materi', label: 'Modul Pembelajaran LMS', icon: BookOpen, featureKey: 'lms' },
     { href: '/settings/theme', label: 'Pengaturan & Branding', icon: Palette },
   ];
@@ -71,6 +76,7 @@ export default function Sidebar({ onNavigate, onClose }: SidebarProps) {
   // Specific navigation for Teachers/Ustadz (strictly hides institution management)
   const guruLinks: NavItem[] = [
     { href: '/dashboard', label: 'Beranda Asatidz', icon: LayoutDashboard },
+    { href: '/jadwal', label: 'Jadwal Halaqah', icon: CalendarDays },
     { href: '/hafalan/rekap', label: 'Input & Rekap Setoran', icon: FileCheck },
     { href: '/master/santri', label: `Data ${memberLabel} Halaqah`, icon: GraduationCap },
     { href: '/lms/materi', label: 'Modul Pembelajaran LMS', icon: BookOpen, featureKey: 'lms' },
